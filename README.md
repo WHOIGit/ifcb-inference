@@ -69,36 +69,76 @@ By default, CUDA is used automatically when available and falls back to CPU othe
 
 ### Output Organization Examples
 
-**Model-name organization (default):**
+`{SUBPATH}` preserves the directory structure relative to the input folder. Given:
+
+```
+example-data/bins/
+├── MVCO/
+│   ├── 2006/
+│   │   └── IFCB1_2006_157/
+│   │       ├── IFCB1_2006_157_181359   ← bin
+│   │       ├── IFCB1_2006_157_183432   ← bin
+│   │       └── IFCB1_2006_157_185616   ← bin
+│   └── 2023/
+│       └── D20230108/
+│           ├── D20230108T145350_IFCB127   ← bin
+│           ├── D20230108T151529_IFCB127   ← bin
+│           └── D20230108T153615_IFCB127   ← bin
+└── OTZ/
+    └── 2019/
+        ├── D20190722/
+        │   └── D20190722T155753_IFCB127   ← bin
+        └── D20190723/
+            ├── D20190723T161602_IFCB127   ← bin
+            └── D20190723T171832_IFCB127   ← bin
+```
+
+**Default (`{MODEL_NAME}/{SUBPATH}.csv`):**
+```bash
+ifcb-infer my_classifier.onnx example-data/bins/
+```
 ```
 outputs/
-├── my_classifier/
-│   ├── D20240301T123456_IFCB999.csv
-│   └── D20240301T130000_IFCB999.csv
-└── another_model/
-    └── D20240302T090000_IFCB999.csv
+└── my_classifier/
+    ├── MVCO/2006/IFCB1_2006_157/IFCB1_2006_157_181359.csv
+    ├── MVCO/2006/IFCB1_2006_157/IFCB1_2006_157_183432.csv
+    ├── MVCO/2006/IFCB1_2006_157/IFCB1_2006_157_185616.csv
+    ├── MVCO/2023/D20230108/D20230108T145350_IFCB127.csv
+    ├── MVCO/2023/D20230108/D20230108T151529_IFCB127.csv
+    ├── MVCO/2023/D20230108/D20230108T153615_IFCB127.csv
+    ├── OTZ/2019/D20190722/D20190722T155753_IFCB127.csv
+    ├── OTZ/2019/D20190723/D20190723T161602_IFCB127.csv
+    └── OTZ/2019/D20190723/D20190723T171832_IFCB127.csv
 ```
 
 **Run-date organization (`--outfile "{RUN_DATE}/{SUBPATH}.csv"`):**
+```bash
+ifcb-infer --outfile "{RUN_DATE}/{SUBPATH}.csv" my_classifier.onnx example-data/bins/
+```
 ```
 outputs/
-├── 2025-01-15/
-│   ├── D20240301T123456_IFCB999.csv
-│   └── D20240301T130000_IFCB999.csv
-└── 2025-01-16/
-    └── D20240302T090000_IFCB999.csv
+└── 2025-01-15/
+    ├── MVCO/2006/IFCB1_2006_157/IFCB1_2006_157_181359.csv
+    ├── MVCO/2006/IFCB1_2006_157/IFCB1_2006_157_183432.csv
+    ├── MVCO/2006/IFCB1_2006_157/IFCB1_2006_157_185616.csv
+    ├── MVCO/2023/D20230108/D20230108T145350_IFCB127.csv
+    ├── MVCO/2023/D20230108/D20230108T151529_IFCB127.csv
+    ├── MVCO/2023/D20230108/D20230108T153615_IFCB127.csv
+    ├── OTZ/2019/D20190722/D20190722T155753_IFCB127.csv
+    ├── OTZ/2019/D20190723/D20190723T161602_IFCB127.csv
+    └── OTZ/2019/D20190723/D20190723T171832_IFCB127.csv
 ```
 
 ## Container Use
 
 ```bash
-podman build . -t onnx:latest
+podman build . -t ifcb-infer:latest
 podman run -it --rm -e CUDA_VISIBLE_DEVICES=1 \
        --device nvidia.com/gpu=all \
        -v $(pwd)/models:/app/models \
        -v $(pwd)/inputs/:/app/inputs \
        -v $(pwd)/outputs:/app/outputs \
-       onnx:latest models/PathToYourModel.onnx inputs/PathToBinDirectory
+       ifcb-infer:latest models/PathToYourModel.onnx inputs/PathToBinDirectory
 ```
 
 ## Development
