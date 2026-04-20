@@ -21,51 +21,61 @@ class TestGetOutputPath:
         """Set up test fixtures."""
         self.args = type("Args", (), {})()
         self.args.outdir = "./outputs"
-        self.args.outfile = "{MODEL_NAME}/{SUBPATH}.csv"
+        self.args.outfile = "{MODEL_NAME}/{SUBPATH}/{BIN}.csv"
         self.args.run_date_str = "2025-01-15"
         self.args.model_name = "test_model"
 
-    def test_basic_output_path_model_name(self):
-        """Test basic output path generation with default model-name format."""
+    def test_default_pattern_no_subpath(self):
+        """Test default pattern when bin has no relative directory (SUBPATH empty)."""
         result = get_output_path(self.args, "test_bin")
-        expected = os.path.join("./outputs", "test_model/test_bin.csv")
-        assert result == expected
+        assert result == os.path.normpath("./outputs/test_model/test_bin.csv")
 
-    def test_basic_output_path_run_date(self):
-        """Test output path generation with run-date pattern."""
-        self.args.outfile = "{RUN_DATE}/{SUBPATH}.csv"
-        result = get_output_path(self.args, "test_bin")
-        expected = os.path.join("./outputs", "2025-01-15/test_bin.csv")
-        assert result == expected
+    def test_default_pattern_with_subpath(self):
+        """Test default pattern with a deep relative path."""
+        result = get_output_path(self.args, "test_bin", "MVCO/2006/IFCB1_2006_157/test_bin")
+        assert result == os.path.normpath("./outputs/test_model/MVCO/2006/IFCB1_2006_157/test_bin.csv")
 
-    def test_output_path_with_relative_path(self):
-        """Test output path generation with bin_relative_path."""
-        bin_relative_path = "subdir/test_bin"
-        result = get_output_path(self.args, "test_bin", bin_relative_path)
-        expected = os.path.join("./outputs", "test_model/subdir/test_bin.csv")
-        assert result == expected
+    def test_bin_only_pattern_flat_output(self):
+        """Test {BIN}.csv pattern produces a flat list regardless of input structure."""
+        self.args.outfile = "{BIN}.csv"
+        result = get_output_path(self.args, "test_bin", "MVCO/2006/IFCB1_2006_157/test_bin")
+        assert result == os.path.normpath("./outputs/test_bin.csv")
+
+    def test_run_date_pattern(self):
+        """Test {RUN_DATE}/{SUBPATH}/{BIN}.csv pattern."""
+        self.args.outfile = "{RUN_DATE}/{SUBPATH}/{BIN}.csv"
+        result = get_output_path(self.args, "test_bin", "MVCO/2023/D20230108/test_bin")
+        assert result == os.path.normpath("./outputs/2025-01-15/MVCO/2023/D20230108/test_bin.csv")
 
     def test_output_path_torch_version(self):
         """Test torch version of get_output_path function."""
-        result = get_output_path_torch(self.args, "test_bin")
-        expected = os.path.join("./outputs", "test_model/test_bin.csv")
-        assert result == expected
+        result = get_output_path_torch(self.args, "test_bin", "site/year/day/test_bin")
+        assert result == os.path.normpath("./outputs/test_model/site/year/day/test_bin.csv")
 
     def test_output_path_with_custom_outdir(self):
         """Test output path with custom output directory."""
         self.args.outdir = "/custom/output/dir"
-        result = get_output_path(self.args, "test_bin")
-        expected = os.path.join("/custom/output/dir", "test_model/test_bin.csv")
-        assert result == expected
+        result = get_output_path(self.args, "test_bin", "MVCO/2006/IFCB1_2006_157/test_bin")
+        assert result == os.path.normpath("/custom/output/dir/test_model/MVCO/2006/IFCB1_2006_157/test_bin.csv")
 
-    def test_output_path_complex_relative_path(self):
-        """Test output path with complex relative path structure."""
-        bin_relative_path = "year2024/month03/day15/test_bin"
-        result = get_output_path(self.args, "test_bin", bin_relative_path)
-        expected = os.path.join(
-            "./outputs", "test_model/year2024/month03/day15/test_bin.csv"
-        )
-        assert result == expected
+    def test_bin_relative_path_none_falls_back_to_bin_id(self):
+        """Test that omitting bin_relative_path uses bin_id as the full subpath."""
+        result = get_output_path(self.args, "test_bin", None)
+        assert result == os.path.normpath("./outputs/test_model/test_bin.csv")
+
+    def test_bin_at_root_of_input_dir(self):
+        """Test when bin_relative_path has no directory component (bin sits at input root)."""
+        result = get_output_path(self.args, "test_bin", "test_bin")
+        assert result == os.path.normpath("./outputs/test_model/test_bin.csv")
+
+    def test_subpath_without_bin_token_loses_bin_name(self):
+        """Test that {SUBPATH} without {BIN} only captures the directory — bin name is absent.
+
+        Users who rely on {SUBPATH} alone should migrate to {SUBPATH}/{BIN}.
+        """
+        self.args.outfile = "{MODEL_NAME}/{SUBPATH}.csv"
+        result = get_output_path(self.args, "test_bin", "MVCO/2006/IFCB1_2006_157/test_bin")
+        assert result == os.path.normpath("./outputs/test_model/MVCO/2006/IFCB1_2006_157.csv")
 
 
 class TestArgparseRuntimeArgs:
@@ -183,10 +193,10 @@ class TestOutfilePattern:
     """Test --outfile pattern parsing and defaults."""
 
     def test_default_outfile_pattern(self):
-        """Test that default outfile pattern is model-name based."""
+        """Test that default outfile pattern uses MODEL_NAME, SUBPATH, and BIN."""
         parser = argparse_init()
         args = parser.parse_args(["model.onnx", "bins/"])
-        assert args.outfile == "{MODEL_NAME}/{SUBPATH}.csv"
+        assert args.outfile == "{MODEL_NAME}/{SUBPATH}/{BIN}.csv"
 
     def test_custom_outfile_pattern(self):
         """Test that a custom outfile pattern is accepted."""

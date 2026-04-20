@@ -59,8 +59,8 @@ ifcb-infer [OPTIONS] MODEL BINS [BINS ...]
                                        Accepts a line-delimited .txt or an index-keyed .json
                                        (e.g. {"0": "class_a", "1": "class_b"})
 --outdir DIRPATH                       Output directory. Default: ./outputs
---outfile PATTERN                      Output filename pattern. Default: {MODEL_NAME}/{SUBPATH}.csv
-                                       Tokens: {MODEL_NAME}, {RUN_DATE}, {SUBPATH}
+--outfile PATTERN                      Output filename pattern. Default: {MODEL_NAME}/{SUBPATH}/{BIN}.csv
+                                       Tokens: {MODEL_NAME}, {RUN_DATE}, {SUBPATH} (relative dir), {BIN} (bin name)
 --cpuonly                              Force CPU inference even if CUDA is available
 --notorch                              Use non-PyTorch data loader even if torch is installed
 ```
@@ -93,7 +93,7 @@ example-data/bins/
             └── D20190723T171832_IFCB127   ← bin
 ```
 
-**Default (`{MODEL_NAME}/{SUBPATH}.csv`):**
+**Default (`{MODEL_NAME}/{SUBPATH}/{BIN}.csv`):**
 ```bash
 ifcb-infer my_classifier.onnx example-data/bins/
 ```
@@ -111,9 +111,26 @@ outputs/
     └── OTZ/2019/D20190723/D20190723T171832_IFCB127.csv
 ```
 
-**Run-date organization (`--outfile "{RUN_DATE}/{SUBPATH}.csv"`):**
+**Flat output — one folder, all bins (`--outfile "{BIN}.csv"`):**
 ```bash
-ifcb-infer --outfile "{RUN_DATE}/{SUBPATH}.csv" my_classifier.onnx example-data/bins/
+ifcb-infer --outfile "{BIN}.csv" my_classifier.onnx example-data/bins/
+```
+```
+outputs/
+├── IFCB1_2006_157_181359.csv
+├── IFCB1_2006_157_183432.csv
+├── IFCB1_2006_157_185616.csv
+├── D20230108T145350_IFCB127.csv
+├── D20230108T151529_IFCB127.csv
+├── D20230108T153615_IFCB127.csv
+├── D20190722T155753_IFCB127.csv
+├── D20190723T161602_IFCB127.csv
+└── D20190723T171832_IFCB127.csv
+```
+
+**Run-date prefix (`--outfile "{RUN_DATE}/{SUBPATH}/{BIN}.csv"`):**
+```bash
+ifcb-infer --outfile "{RUN_DATE}/{SUBPATH}/{BIN}.csv" my_classifier.onnx example-data/bins/
 ```
 ```
 outputs/

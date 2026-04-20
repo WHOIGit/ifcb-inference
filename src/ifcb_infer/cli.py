@@ -33,8 +33,8 @@ def argparse_init(parser=None):
     parser.add_argument("--outdir", default="./outputs", help='Default is "./outputs"')
     parser.add_argument(
         "--outfile",
-        default="{MODEL_NAME}/{SUBPATH}.csv",
-        help='Output filename pattern. Tokens: {MODEL_NAME}, {RUN_DATE}, {SUBPATH}. Default is "{MODEL_NAME}/{SUBPATH}.csv"',
+        default="{MODEL_NAME}/{SUBPATH}/{BIN}.csv",
+        help='Output filename pattern. Tokens: {MODEL_NAME}, {RUN_DATE}, {SUBPATH} (relative dir), {BIN} (bin name). Default is "{MODEL_NAME}/{SUBPATH}/{BIN}.csv"',
     )
     parser.add_argument(
         "--notorch",
@@ -123,11 +123,17 @@ def pad_batch(batch: np.ndarray, target_batch_size: int):
 
 
 def get_output_path(args, bin_id, bin_relative_path=None):
+    full_subpath = bin_relative_path if bin_relative_path is not None else bin_id
+    subpath_dir = os.path.dirname(full_subpath)
+    bin_name = os.path.basename(full_subpath)
     outpath = os.path.join(args.outdir, args.outfile)
-    subpath = bin_relative_path if bin_relative_path is not None else bin_id
-    return outpath.format(
-        RUN_DATE=args.run_date_str, MODEL_NAME=args.model_name, SUBPATH=subpath
+    result = outpath.format(
+        RUN_DATE=args.run_date_str,
+        MODEL_NAME=args.model_name,
+        SUBPATH=subpath_dir,
+        BIN=bin_name,
     )
+    return os.path.normpath(result)
 
 
 def write_output(args, bin_id, pids, score_matrix, bin_relative_path=None):
