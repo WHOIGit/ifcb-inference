@@ -21,41 +21,41 @@ class TestGetOutputPath:
         """Set up test fixtures."""
         self.args = type("Args", (), {})()
         self.args.outdir = "./outputs"
-        self.args.outfile = "{RUN_DATE}/{SUBPATH}.csv"
+        self.args.outfile = "{MODEL_NAME}/{SUBPATH}.csv"
         self.args.run_date_str = "2025-01-15"
         self.args.model_name = "test_model"
 
-    def test_basic_output_path_run_date(self):
-        """Test basic output path generation with run-date format."""
-        result = get_output_path(self.args, "test_bin")
-        expected = os.path.join("./outputs", "2025-01-15/test_bin.csv")
-        assert result == expected
-
     def test_basic_output_path_model_name(self):
-        """Test basic output path generation with model-name format."""
-        self.args.outfile = "{MODEL_NAME}/{SUBPATH}.csv"
+        """Test basic output path generation with default model-name format."""
         result = get_output_path(self.args, "test_bin")
         expected = os.path.join("./outputs", "test_model/test_bin.csv")
+        assert result == expected
+
+    def test_basic_output_path_run_date(self):
+        """Test output path generation with run-date pattern."""
+        self.args.outfile = "{RUN_DATE}/{SUBPATH}.csv"
+        result = get_output_path(self.args, "test_bin")
+        expected = os.path.join("./outputs", "2025-01-15/test_bin.csv")
         assert result == expected
 
     def test_output_path_with_relative_path(self):
         """Test output path generation with bin_relative_path."""
         bin_relative_path = "subdir/test_bin"
         result = get_output_path(self.args, "test_bin", bin_relative_path)
-        expected = os.path.join("./outputs", "2025-01-15/subdir/test_bin.csv")
+        expected = os.path.join("./outputs", "test_model/subdir/test_bin.csv")
         assert result == expected
 
     def test_output_path_torch_version(self):
         """Test torch version of get_output_path function."""
         result = get_output_path_torch(self.args, "test_bin")
-        expected = os.path.join("./outputs", "2025-01-15/test_bin.csv")
+        expected = os.path.join("./outputs", "test_model/test_bin.csv")
         assert result == expected
 
     def test_output_path_with_custom_outdir(self):
         """Test output path with custom output directory."""
         self.args.outdir = "/custom/output/dir"
         result = get_output_path(self.args, "test_bin")
-        expected = os.path.join("/custom/output/dir", "2025-01-15/test_bin.csv")
+        expected = os.path.join("/custom/output/dir", "test_model/test_bin.csv")
         assert result == expected
 
     def test_output_path_complex_relative_path(self):
@@ -63,7 +63,7 @@ class TestGetOutputPath:
         bin_relative_path = "year2024/month03/day15/test_bin"
         result = get_output_path(self.args, "test_bin", bin_relative_path)
         expected = os.path.join(
-            "./outputs", "2025-01-15/year2024/month03/day15/test_bin.csv"
+            "./outputs", "test_model/year2024/month03/day15/test_bin.csv"
         )
         assert result == expected
 
@@ -179,95 +179,26 @@ class TestArgparseRuntimeArgs:
         assert self.args.model_name == "my_awesome_model"
 
 
-class TestSubfolderTypeLogic:
-    """Test the subfolder-type logic in main functions."""
+class TestOutfilePattern:
+    """Test --outfile pattern parsing and defaults."""
 
-    def test_argparse_init_has_subfolder_type(self):
-        """Test that argparse_init includes subfolder-type argument."""
-        parser = argparse_init()
-
-        # Parse help to check if subfolder-type is present
-        help_text = parser.format_help()
-        assert "--subfolder-type" in help_text
-        assert "run-date" in help_text
-        assert "model-name" in help_text
-
-    def test_argparse_init_torch_has_subfolder_type(self):
-        """Test that torch version argparse_init includes subfolder-type argument."""
-        parser = argparse_init_torch()
-
-        help_text = parser.format_help()
-        assert "--subfolder-type" in help_text
-        assert "run-date" in help_text
-        assert "model-name" in help_text
-
-    def test_default_subfolder_type_is_run_date(self):
-        """Test that default subfolder-type is run-date."""
+    def test_default_outfile_pattern(self):
+        """Test that default outfile pattern is model-name based."""
         parser = argparse_init()
         args = parser.parse_args(["model.onnx", "bins/"])
-        assert args.subfolder_type == "run-date"
+        assert args.outfile == "{MODEL_NAME}/{SUBPATH}.csv"
 
-    def test_model_name_subfolder_type_parsing(self):
-        """Test parsing model-name subfolder-type."""
+    def test_custom_outfile_pattern(self):
+        """Test that a custom outfile pattern is accepted."""
         parser = argparse_init()
-        args = parser.parse_args(
-            ["--subfolder-type", "model-name", "model.onnx", "bins/"]
-        )
-        assert args.subfolder_type == "model-name"
-
-    def test_invalid_subfolder_type_raises_error(self):
-        """Test that invalid subfolder-type raises error."""
-        parser = argparse_init()
-        with pytest.raises(SystemExit):
-            parser.parse_args(["--subfolder-type", "invalid", "model.onnx", "bins/"])
-
-
-class TestOutputFilePatternLogic:
-    """Test the logic for updating output file patterns based on subfolder-type."""
-
-    def test_run_date_keeps_default_pattern(self):
-        """Test that run-date keeps the default outfile pattern."""
-        args = type("Args", (), {})()
-        args.subfolder_type = "run-date"
-        args.outfile = "{RUN_DATE}/{SUBPATH}.csv"
-
-        # Simulate the logic from cli.main()
-        if (
-            args.subfolder_type == "model-name"
-            and args.outfile == "{RUN_DATE}/{SUBPATH}.csv"
-        ):
-            args.outfile = "{MODEL_NAME}/{SUBPATH}.csv"
-
+        args = parser.parse_args(["--outfile", "{RUN_DATE}/{SUBPATH}.csv", "model.onnx", "bins/"])
         assert args.outfile == "{RUN_DATE}/{SUBPATH}.csv"
 
-    def test_model_name_updates_pattern(self):
-        """Test that model-name updates the outfile pattern."""
-        args = type("Args", (), {})()
-        args.subfolder_type = "model-name"
-        args.outfile = "{RUN_DATE}/{SUBPATH}.csv"
-
-        # Simulate the logic from cli.main()
-        if (
-            args.subfolder_type == "model-name"
-            and args.outfile == "{RUN_DATE}/{SUBPATH}.csv"
-        ):
-            args.outfile = "{MODEL_NAME}/{SUBPATH}.csv"
-
-        assert args.outfile == "{MODEL_NAME}/{SUBPATH}.csv"
-
-    def test_torch_version_model_name_logic(self):
-        """Test torch version model-name logic (same as notorch in consolidated CLI)."""
-        args = type("Args", (), {})()
-        args.subfolder_type = "model-name"
-        args.outfile = "{RUN_DATE}/{SUBPATH}.csv"
-
-        if (
-            args.subfolder_type == "model-name"
-            and args.outfile == "{RUN_DATE}/{SUBPATH}.csv"
-        ):
-            args.outfile = "{MODEL_NAME}/{SUBPATH}.csv"
-
-        assert args.outfile == "{MODEL_NAME}/{SUBPATH}.csv"
+    def test_combined_pattern(self):
+        """Test a pattern combining multiple tokens."""
+        parser = argparse_init()
+        args = parser.parse_args(["--outfile", "{MODEL_NAME}/{RUN_DATE}/{SUBPATH}.csv", "model.onnx", "bins/"])
+        assert args.outfile == "{MODEL_NAME}/{RUN_DATE}/{SUBPATH}.csv"
 
 
 class TestBinDirectoryMapping:
@@ -289,6 +220,7 @@ class TestBinDirectoryMapping:
 
         # Mock directory and file checks
         mock_isdir = mocker.patch("os.path.isdir")
+        mocker.patch("ifcb.data.files.list_data_dirs", return_value=["dir1"])
         mock_dd = mocker.patch("ifcb.DataDirectory")
 
         # Set up mocks
@@ -305,29 +237,6 @@ class TestBinDirectoryMapping:
         assert hasattr(self.args, "bin_to_input_dir")
         assert "dir1/bin1" in self.args.bin_to_input_dir
         assert self.args.bin_to_input_dir["dir1/bin1"] == "dir1"
-
-
-@pytest.mark.parametrize(
-    "subfolder_type,expected_pattern",
-    [
-        ("run-date", "{RUN_DATE}/{SUBPATH}.csv"),
-        ("model-name", "{MODEL_NAME}/{SUBPATH}.csv"),
-    ],
-)
-def test_subfolder_pattern_parametrized(subfolder_type, expected_pattern):
-    """Parametrized test for different subfolder types."""
-    args = type("Args", (), {})()
-    args.subfolder_type = subfolder_type
-    args.outfile = "{RUN_DATE}/{SUBPATH}.csv"
-
-    # Simulate the logic from cli.main()
-    if (
-        args.subfolder_type == "model-name"
-        and args.outfile == "{RUN_DATE}/{SUBPATH}.csv"
-    ):
-        args.outfile = "{MODEL_NAME}/{SUBPATH}.csv"
-
-    assert args.outfile == expected_pattern
 
 
 @pytest.mark.parametrize(

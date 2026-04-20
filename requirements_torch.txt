@@ -1,8 +1,0 @@
-onnx
-onnxruntime-gpu
-git+https://github.com/joefutrelle/pyifcb.git
-numpy
-tqdm
-humanize
-torch
-torchvision

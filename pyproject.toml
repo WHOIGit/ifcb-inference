@@ -9,17 +9,28 @@ description = "ONNX model inference on IFCB bins"
 requires-python = ">=3.10"
 dependencies = [
     "onnx",
-    "onnxruntime-gpu[cuda,cudnn]",
+    "onnxruntime",
     "pyifcb @ git+https://github.com/joefutrelle/pyifcb.git",
     "numpy",
     "tqdm",
 ]
 
 [project.optional-dependencies]
+cuda = [
+    "onnxruntime-gpu[cuda,cudnn]",
+]
 torch = [
     "torch",
     "torchvision",
     "humanize",
+]
+dev = [
+    "pytest~=8.3.4",
+    "pytest-mock~=3.14.0",
+    "pytest-cov~=4.0.0",
+    "black~=25.1.0",
+    "isort~=6.0.1",
+    "flake8~=7.3.0",
 ]
 
 [project.scripts]

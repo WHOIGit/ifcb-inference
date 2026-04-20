@@ -33,22 +33,28 @@ def argparse_init(parser=None):
     parser.add_argument("--outdir", default="./outputs", help='Default is "./outputs"')
     parser.add_argument(
         "--outfile",
-        default="{RUN_DATE}/{SUBPATH}.csv",
-        help='Default is "{RUN_DATE}/{SUBPATH}.csv"',
-    )
-    parser.add_argument(
-        "--subfolder-type",
-        choices=["run-date", "model-name"],
-        default="run-date",
-        help="Type of subfolder to use: run-date (default) or model-name",
+        default="{MODEL_NAME}/{SUBPATH}.csv",
+        help='Output filename pattern. Tokens: {MODEL_NAME}, {RUN_DATE}, {SUBPATH}. Default is "{MODEL_NAME}/{SUBPATH}.csv"',
     )
     parser.add_argument(
         "--notorch",
         action="store_true",
         help="Force non-torch dataloader even if torch is available",
     )
+    parser.add_argument(
+        "--cpuonly",
+        action="store_true",
+        help="Force CPU-only inference, disabling CUDA even if available",
+    )
 
     return parser
+
+
+def get_providers(args):
+    if args.cpuonly:
+        return ["CPUExecutionProvider"]
+    available = ort.get_available_providers()
+    return [p for p in ["CUDAExecutionProvider", "CPUExecutionProvider"] if p in available]
 
 
 def argparse_runtime_args(args):
@@ -144,9 +150,6 @@ def main():
     parser = argparse_init()
     args = parser.parse_args()
     argparse_runtime_args(args)
-
-    if args.subfolder_type == "model-name" and args.outfile == "{RUN_DATE}/{SUBPATH}.csv":
-        args.outfile = "{MODEL_NAME}/{SUBPATH}.csv"
 
     use_torch = False
     if not args.notorch:

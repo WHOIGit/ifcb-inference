@@ -4,12 +4,12 @@ import numpy as np
 import onnxruntime as ort
 from tqdm import tqdm
 
-from ifcb_infer.cli import get_output_path, pad_batch, write_output
+from ifcb_infer.cli import get_output_path, get_providers, pad_batch, write_output
 from ifcb_infer.datasets import IfcbBinDataset, IfcbBinImageTransformer, MyDataLoader
 
 
 def main(args):
-    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    providers = get_providers(args)
     sess_options = ort.SessionOptions()
     ort_session = ort.InferenceSession(
         args.MODEL, sess_options=sess_options, providers=providers

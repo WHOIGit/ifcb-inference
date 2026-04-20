@@ -12,48 +12,65 @@ ONNX-based inference system for IFCB (Imaging FlowCytobot) data analysis. This t
 - **Configurable output organization**: Choose between run-date or model-name subfolder organization
 - **Directory structure preservation**: Maintains input directory hierarchies in output
 - **Containerized deployment**: Docker/Podman support for consistent environments
-- **GPU acceleration**: CUDA support for faster inference
+- **GPU acceleration**: CUDA support for faster inference (automatic when available)
 
-## Container Use
+## Installation
 
-### Basic Usage
 ```bash
-podman build . -t onnx:latest
-podman run -it --rm -e CUDA_VISIBLE_DEVICES=1 \
-       --device nvidia.com/gpu=all \
-       -v $(pwd)/models:/app/models \ 
-       -v $(pwd)/inputs/:/app/inputs \
-       -v $(pwd)/outputs:/app/outputs \
-       onnx:latest models/PathToYourModel.onnx inputs/PathToBinDirectory 
+# CPU-only (default)
+pip install -e .
+
+# With CUDA/GPU support
+pip install -e ".[cuda]"
+
+# With PyTorch data loaders
+pip install -e ".[torch]"
+
+# All of the above
+pip install -e ".[cuda,torch]"
+
+# Development (includes pytest, black, isort, flake8)
+pip install -e ".[dev]"
 ```
 
-### Optional Flags:
-```bash
---batch N                              # required for models without pre-set input sizes
---classes LISTFILE                     # to add class name headers to output score-matrix csv
---outdir DIRPATH                       # directory to write files to. Default is './outputs'
---outfile FILENAME                     # filename of output csv. Default is "{RUN_DATE}/{SUBPATH}.csv"
---subfolder-type {run-date,model-name} # organize outputs by run date (default) or model name
---force-notorch                        # use non-torch datasets and dataloaders. If torch is not installed, this flag is automatically set 
+To include in a `requirements.txt`:
+
+```
+# CPU-only
+ifcb-infer @ git+https://github.com/WHOIGit/amplify_onnx_inference.git
+
+# With extras (e.g. CUDA + PyTorch)
+ifcb-infer[cuda,torch] @ git+https://github.com/WHOIGit/amplify_onnx_inference.git
 ```
 
-### Output Organization Examples:
+## Usage
 
-**Run-date organization (default):**
 ```bash
-# Outputs organized by date of inference run
-outputs/
-├── 2025-01-15/
-│   ├── D20240301T123456_IFCB999.csv
-│   └── D20240301T130000_IFCB999.csv
-└── 2025-01-16/
-    └── D20240302T090000_IFCB999.csv
+ifcb-infer [OPTIONS] MODEL BINS [BINS ...]
 ```
 
-**Model-name organization:**
-```bash
-podman run ... onnx:latest --subfolder-type model-name models/my_classifier.onnx inputs/
-# Outputs organized by model name
+`BINS` can be a directory, a bin path, or a `.txt`/`.list` file of bin paths.
+
+### Options
+
+```
+--batch N                              Required for models without a fixed input batch size
+--classes FILE                         Class list file; adds column headers to output CSVs.
+                                       Accepts a line-delimited .txt or an index-keyed .json
+                                       (e.g. {"0": "class_a", "1": "class_b"})
+--outdir DIRPATH                       Output directory. Default: ./outputs
+--outfile PATTERN                      Output filename pattern. Default: {MODEL_NAME}/{SUBPATH}.csv
+                                       Tokens: {MODEL_NAME}, {RUN_DATE}, {SUBPATH}
+--cpuonly                              Force CPU inference even if CUDA is available
+--notorch                              Use non-PyTorch data loader even if torch is installed
+```
+
+By default, CUDA is used automatically when available and falls back to CPU otherwise.
+
+### Output Organization Examples
+
+**Model-name organization (default):**
+```
 outputs/
 ├── my_classifier/
 │   ├── D20240301T123456_IFCB999.csv
@@ -62,35 +79,29 @@ outputs/
     └── D20240302T090000_IFCB999.csv
 ```
 
-## Direct Python Usage
+**Run-date organization (`--outfile "{RUN_DATE}/{SUBPATH}.csv"`):**
+```
+outputs/
+├── 2025-01-15/
+│   ├── D20240301T123456_IFCB999.csv
+│   └── D20240301T130000_IFCB999.csv
+└── 2025-01-16/
+    └── D20240302T090000_IFCB999.csv
+```
 
-You can also run the inference scripts directly:
+## Container Use
 
 ```bash
-# Using PyTorch data loaders (recommended)
-python src/infer_ifcbbins_torch.py models/classifier.onnx data/bins/
-
-# Using non-PyTorch data loaders
-python src/infer_ifcbbins.py models/classifier.onnx data/bins/
-
-# With custom output organization
-python src/infer_ifcbbins_torch.py --subfolder-type model-name \
-    --classes classes.txt models/classifier.onnx data/bins/
+podman build . -t onnx:latest
+podman run -it --rm -e CUDA_VISIBLE_DEVICES=1 \
+       --device nvidia.com/gpu=all \
+       -v $(pwd)/models:/app/models \
+       -v $(pwd)/inputs/:/app/inputs \
+       -v $(pwd)/outputs:/app/outputs \
+       onnx:latest models/PathToYourModel.onnx inputs/PathToBinDirectory
 ```
 
 ## Development
-
-### Installing Dependencies
-
-For production use:
-```bash
-pip install -r requirements.txt
-```
-
-For development (includes testing tools):
-```bash
-pip install -r requirements-dev.txt
-```
 
 ### Running Tests
 
@@ -100,9 +111,6 @@ pytest
 
 # Run with coverage
 pytest --cov=src --cov-report=term-missing
-
-# Run specific test file
-pytest tests/test_infer_functions.py
 ```
 
 ### Continuous Integration
