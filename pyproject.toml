@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ifcb-infer"
+version = "0.1.0"
+description = "ONNX model inference on IFCB bins"
+requires-python = ">=3.10"
+dependencies = [
+    "onnx",
+    "onnxruntime-gpu[cuda,cudnn]",
+    "pyifcb @ git+https://github.com/joefutrelle/pyifcb.git",
+    "numpy",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+torch = [
+    "torch",
+    "torchvision",
+    "humanize",
+]
+
+[project.scripts]
+ifcb-infer = "ifcb_infer.cli:main"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ifcb_infer"]

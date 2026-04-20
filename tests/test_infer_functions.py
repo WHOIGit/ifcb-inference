@@ -6,13 +6,12 @@ import tempfile
 
 import pytest
 
-# Import functions to test
-from src.infer_ifcbbins import argparse_init, argparse_runtime_args, get_output_path
-from src.infer_ifcbbins_torch import argparse_init as argparse_init_torch
-from src.infer_ifcbbins_torch import (
-    argparse_runtime_args as argparse_runtime_args_torch,
-)
-from src.infer_ifcbbins_torch import get_output_path as get_output_path_torch
+from ifcb_infer.cli import argparse_init, argparse_runtime_args, get_output_path
+
+# The torch and notorch variants share a single argparse/runtime implementation.
+argparse_init_torch = argparse_init
+argparse_runtime_args_torch = argparse_runtime_args
+get_output_path_torch = get_output_path
 
 
 class TestGetOutputPath:
@@ -119,6 +118,57 @@ class TestArgparseRuntimeArgs:
         finally:
             os.unlink(classes_file)
 
+    def test_runtime_args_with_classes_json(self, mocker):
+        """Test runtime args with labels.json format (index-keyed dict)."""
+        mock_datetime = mocker.patch("datetime.datetime")
+        mock_datetime.now.return_value.isoformat.return_value = "2025-01-15T14:30:45"
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as f:
+            import json
+            json.dump({"0": "class1", "1": "class2", "2": "class3"}, f)
+            classes_file = f.name
+
+        try:
+            self.args.classes = classes_file
+            argparse_runtime_args(self.args)
+            assert self.args.classes == ["class1", "class2", "class3"]
+        finally:
+            os.unlink(classes_file)
+
+    def test_runtime_args_with_classes_json_no_extension(self, mocker):
+        """Test runtime args with JSON content but no .json extension."""
+        mock_datetime = mocker.patch("datetime.datetime")
+        mock_datetime.now.return_value.isoformat.return_value = "2025-01-15T14:30:45"
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            import json
+            json.dump({"0": "classA", "1": "classB"}, f)
+            classes_file = f.name
+
+        try:
+            self.args.classes = classes_file
+            argparse_runtime_args(self.args)
+            assert self.args.classes == ["classA", "classB"]
+        finally:
+            os.unlink(classes_file)
+
+    def test_runtime_args_with_classes_json_order(self, mocker):
+        """Test that JSON classes are sorted by integer index, not insertion order."""
+        mock_datetime = mocker.patch("datetime.datetime")
+        mock_datetime.now.return_value.isoformat.return_value = "2025-01-15T14:30:45"
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as f:
+            # Write out-of-order keys to verify integer sorting
+            f.write('{"2": "third", "0": "first", "1": "second"}')
+            classes_file = f.name
+
+        try:
+            self.args.classes = classes_file
+            argparse_runtime_args(self.args)
+            assert self.args.classes == ["first", "second", "third"]
+        finally:
+            os.unlink(classes_file)
+
     def test_runtime_args_torch_version(self, mocker):
         """Test torch version of runtime args."""
         mock_datetime = mocker.patch("datetime.datetime")
@@ -181,7 +231,7 @@ class TestOutputFilePatternLogic:
         args.subfolder_type = "run-date"
         args.outfile = "{RUN_DATE}/{SUBPATH}.csv"
 
-        # Simulate the logic from __main__
+        # Simulate the logic from cli.main()
         if (
             args.subfolder_type == "model-name"
             and args.outfile == "{RUN_DATE}/{SUBPATH}.csv"
@@ -196,7 +246,7 @@ class TestOutputFilePatternLogic:
         args.subfolder_type = "model-name"
         args.outfile = "{RUN_DATE}/{SUBPATH}.csv"
 
-        # Simulate the logic from __main__
+        # Simulate the logic from cli.main()
         if (
             args.subfolder_type == "model-name"
             and args.outfile == "{RUN_DATE}/{SUBPATH}.csv"
@@ -206,23 +256,18 @@ class TestOutputFilePatternLogic:
         assert args.outfile == "{MODEL_NAME}/{SUBPATH}.csv"
 
     def test_torch_version_model_name_logic(self):
-        """Test torch version model-name logic."""
+        """Test torch version model-name logic (same as notorch in consolidated CLI)."""
         args = type("Args", (), {})()
         args.subfolder_type = "model-name"
-        args.outdir = "./outputs"
         args.outfile = "{RUN_DATE}/{SUBPATH}.csv"
 
-        # Simulate torch version logic
-        if args.subfolder_type == "model-name":
-            if (
-                args.outdir == "./outputs"
-                and args.outfile == "{RUN_DATE}/{SUBPATH}.csv"
-            ):
-                args.outdir = "./outputs/{MODEL_NAME}"
-                args.outfile = "{SUBPATH}.csv"
+        if (
+            args.subfolder_type == "model-name"
+            and args.outfile == "{RUN_DATE}/{SUBPATH}.csv"
+        ):
+            args.outfile = "{MODEL_NAME}/{SUBPATH}.csv"
 
-        assert args.outdir == "./outputs/{MODEL_NAME}"
-        assert args.outfile == "{SUBPATH}.csv"
+        assert args.outfile == "{MODEL_NAME}/{SUBPATH}.csv"
 
 
 class TestBinDirectoryMapping:
@@ -275,7 +320,7 @@ def test_subfolder_pattern_parametrized(subfolder_type, expected_pattern):
     args.subfolder_type = subfolder_type
     args.outfile = "{RUN_DATE}/{SUBPATH}.csv"
 
-    # Simulate the logic from __main__
+    # Simulate the logic from cli.main()
     if (
         args.subfolder_type == "model-name"
         and args.outfile == "{RUN_DATE}/{SUBPATH}.csv"
