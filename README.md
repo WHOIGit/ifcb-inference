@@ -1,9 +1,9 @@
-# amplify_onnx_inference
+# ifcb-inference
 
-![Tests](https://github.com/WHOIGit/amplify_onnx_inference/workflows/Tests/badge.svg)
-![Lint](https://github.com/WHOIGit/amplify_onnx_inference/workflows/Lint/badge.svg)
+![Tests](https://github.com/WHOIGit/ifcb-inference/workflows/Tests/badge.svg)
+![Lint](https://github.com/WHOIGit/ifcb-inference/workflows/Lint/badge.svg)
 
-ONNX-based inference system for IFCB (Imaging FlowCytobot) data analysis. This tool performs automated plankton classification on IFCB bin files using pre-trained ONNX models.
+ONNX-based inference system for IFCB (Imaging FlowCytobot) bin data. This tool performs automated plankton classification on IFCB bin files using pre-trained ONNX models.
 
 ## Features
 
@@ -18,39 +18,27 @@ ONNX-based inference system for IFCB (Imaging FlowCytobot) data analysis. This t
 
 | Extra | Installs | Use when |
 |---|---|---|
-| *(none)* | `onnxruntime` (CPU) | Lightweight/constrained environments — no GPU, no torch dependency |
+| `[cpu]` | `onnxruntime` (CPU) | Lightweight/constrained environments — no GPU |
 | `[cuda]` | `onnxruntime-gpu` | GPU inference via CUDA |
-| `[torch]` | PyTorch + torchvision | Faster/more flexible data loading; recommended when torch is already available |
-| `[cuda,torch]` | Both of the above | Full-featured GPU deployment |
+| `[torch]` | PyTorch + torchvision | Faster/more flexible data loading, but more dependancies |
+| `[cuda,torch]` | Both of the above | Full-featured install |
 | `[dev]` | pytest, black, isort, flake8 | Development and testing |
 
-Without `[torch]`, the built-in data loader is used — suitable for constrained or lite environments where installing PyTorch is impractical (e.g. small containers, edge deployments). The `[torch]` data loader is recommended otherwise as it supports more image formats and is generally faster.
+- One of `[cpu]` or `['cuda']` must be used to have the appropriate onnxruntime. They are mutually exclusive. If neither are included, at install, `ifcb-infer` will be unable to run. If in doubt, use `[cuda]`.
+- Use of `[torch]` is optional. Without it, a basic data loader is used — suitable for constrained or lite environments where installing PyTorch is impractical (e.g. small containers, edge deployments). The `[torch]` data loader is recommended otherwise as it supports more image formats and is generally faster.
 
 ```bash
-# CPU-only, no torch (lightest install)
-pip install -e .
+# Full featured install
+pip install "ifcb-infer[cuda,torch] @ git+https://github.com/WHOIGit/ifcb-inference.git"
 
-# With CUDA/GPU support
-pip install -e ".[cuda]"
-
-# With PyTorch data loaders
-pip install -e ".[torch]"
-
-# Full-featured (CUDA + PyTorch)
-pip install -e ".[cuda,torch]"
-
-# Development (includes pytest, black, isort, flake8)
-pip install -e ".[dev]"
+# Lightest install
+pip install "ifcb-infer[cpu] @ git+https://github.com/WHOIGit/ifcb-inference.git"
 ```
 
-To include in a `requirements.txt`:
-
-```
-# CPU-only
-ifcb-infer @ git+https://github.com/WHOIGit/amplify_onnx_inference.git
-
-# With extras (e.g. CUDA + PyTorch)
-ifcb-infer[cuda,torch] @ git+https://github.com/WHOIGit/amplify_onnx_inference.git
+If cloning the repo and developing locally:
+```bash
+# Full-featured install (gpu/CUDA + PyTorch)
+pip install -e ".[cuda,torch,dev]"
 ```
 
 ## Usage
@@ -75,14 +63,11 @@ ifcb-infer [OPTIONS] MODEL BINS [BINS ...]
 --notorch                              Use non-PyTorch data loader even if torch is installed
 ```
 
-By default, CUDA is used automatically when available and falls back to CPU otherwise.
-
-By default, torch-dataloaders are used automatically when available and otherwise falls back to a simpler implementation
-
-For the output csv to have column names that correspond to human-readable class names, use --classes option
-
-If a model has a predefined input batch size, that batch size is automatically used and --batch is ignored. 
-If a model does NOT have a predefined input batch size, --batch must be specified.
+- By default, CUDA is used automatically when available and falls back to CPU otherwise.
+- By default, torch-dataloaders are used automatically when available and otherwise falls back to a simpler implementation
+- For the output csv to have column names that correspond to human-readable class names, use `--classes` option
+- If a model has a predefined input batch size, that batch size is automatically used and `--batch` is ignored. 
+- If a model does NOT have a predefined input batch size, `--batch` must be specified.
 
 ### Output Organization Examples
 

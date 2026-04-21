@@ -28,11 +28,13 @@ def argparse_init(parser=None):
     )
     parser.add_argument(
         "--classes",
+        "-c",
         help="Path to row-delimited classlist file. Required for output-csv's headers",
     )
     parser.add_argument("--outdir", default="./outputs", help='Default is "./outputs"')
     parser.add_argument(
         "--outfile",
+        "-o",
         default="{MODEL_NAME}/{SUBPATH}/{BIN}.csv",
         help='Output filename pattern. Tokens: {MODEL_NAME}, {RUN_DATE}, {SUBPATH} (relative dir), {BIN} (bin name). Default is "{MODEL_NAME}/{SUBPATH}/{BIN}.csv"',
     )
@@ -53,8 +55,7 @@ def argparse_init(parser=None):
 def get_providers(args):
     if args.cpuonly:
         return ["CPUExecutionProvider"]
-    available = ort.get_available_providers()
-    return [p for p in ["CUDAExecutionProvider", "CPUExecutionProvider"] if p in available]
+    return ort.get_available_providers()
 
 
 def argparse_runtime_args(args):
@@ -161,13 +162,16 @@ def main():
     if not args.notorch:
         try:
             import torch  # noqa: F401
+
             use_torch = True
         except ImportError:
             pass
 
     if use_torch:
         from ifcb_infer.withtorch import main as torch_main
+
         torch_main(args)
     else:
         from ifcb_infer.sanstorch import main as notorch_main
+
         notorch_main(args)
