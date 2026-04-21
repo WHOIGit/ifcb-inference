@@ -24,7 +24,7 @@ ONNX-based inference system for IFCB (Imaging FlowCytobot) bin data. This tool p
 | `[cuda,torch]` | Both of the above | Full-featured install |
 | `[dev]` | pytest, black, isort, flake8 | Development and testing |
 
-- One of `[cpu]` or `['cuda']` must be used to have the appropriate onnxruntime. They are mutually exclusive. If neither are included, at install, `ifcb-infer` will be unable to run. If in doubt, use `[cuda]`.
+- One of `[cpu]` or `[cuda]` must be used to have the appropriate onnxruntime. They are mutually exclusive. If neither are included, at install, `ifcb-infer` will be unable to run. If in doubt, use `[cuda]`.
 - Use of `[torch]` is optional. Without it, a basic data loader is used — suitable for constrained or lite environments where installing PyTorch is impractical (e.g. small containers, edge deployments). The `[torch]` data loader is recommended otherwise as it supports more image formats and is generally faster.
 
 ```bash
@@ -63,9 +63,9 @@ ifcb-infer [OPTIONS] MODEL BINS [BINS ...]
 --notorch                              Use non-PyTorch data loader even if torch is installed
 ```
 
-- By default, CUDA is used automatically when available and falls back to CPU otherwise.
-- By default, torch-dataloaders are used automatically when available and otherwise falls back to a simpler implementation
-- For the output csv to have column names that correspond to human-readable class names, use `--classes` option
+- By default, CUDA is used automatically when available/installed and otherwise falls back to using CPU.
+- By default, torch-dataloaders are used automatically when available/installed and otherwise falls back to a simpler implementation.
+- For the output csv to have column names that correspond to human-readable class names, use `--classes` option.
 - If a model has a predefined input batch size, that batch size is automatically used and `--batch` is ignored. 
 - If a model does NOT have a predefined input batch size, `--batch` must be specified.
 
