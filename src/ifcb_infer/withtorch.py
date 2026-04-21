@@ -25,14 +25,14 @@ def main(args):
 
     dynamic_batching = True
     if isinstance(model_batch, str):
-        assert args.batch is not None, (
-            "Must specify inference batch size for dynamically batched MODEL"
-        )
+        assert (
+            args.batch is not None
+        ), "Must specify inference batch size for dynamically batched MODEL"
         inference_batchsize = args.batch
     else:
-        assert args.batch is None or model_batch == args.batch, (
-            "MODEL is statically batched, inference batch size cannot be adjusted"
-        )
+        assert (
+            args.batch is None or model_batch == args.batch
+        ), "MODEL is statically batched, inference batch size cannot be adjusted"
         dynamic_batching = False
         inference_batchsize = model_batch
 

@@ -32,31 +32,45 @@ class TestGetOutputPath:
 
     def test_default_pattern_with_subpath(self):
         """Test default pattern with a deep relative path."""
-        result = get_output_path(self.args, "test_bin", "MVCO/2006/IFCB1_2006_157/test_bin")
-        assert result == os.path.normpath("./outputs/test_model/MVCO/2006/IFCB1_2006_157/test_bin.csv")
+        result = get_output_path(
+            self.args, "test_bin", "MVCO/2006/IFCB1_2006_157/test_bin"
+        )
+        assert result == os.path.normpath(
+            "./outputs/test_model/MVCO/2006/IFCB1_2006_157/test_bin.csv"
+        )
 
     def test_bin_only_pattern_flat_output(self):
         """Test {BIN}.csv pattern produces a flat list regardless of input structure."""
         self.args.outfile = "{BIN}.csv"
-        result = get_output_path(self.args, "test_bin", "MVCO/2006/IFCB1_2006_157/test_bin")
+        result = get_output_path(
+            self.args, "test_bin", "MVCO/2006/IFCB1_2006_157/test_bin"
+        )
         assert result == os.path.normpath("./outputs/test_bin.csv")
 
     def test_run_date_pattern(self):
         """Test {RUN_DATE}/{SUBPATH}/{BIN}.csv pattern."""
         self.args.outfile = "{RUN_DATE}/{SUBPATH}/{BIN}.csv"
         result = get_output_path(self.args, "test_bin", "MVCO/2023/D20230108/test_bin")
-        assert result == os.path.normpath("./outputs/2025-01-15/MVCO/2023/D20230108/test_bin.csv")
+        assert result == os.path.normpath(
+            "./outputs/2025-01-15/MVCO/2023/D20230108/test_bin.csv"
+        )
 
     def test_output_path_torch_version(self):
         """Test torch version of get_output_path function."""
         result = get_output_path_torch(self.args, "test_bin", "site/year/day/test_bin")
-        assert result == os.path.normpath("./outputs/test_model/site/year/day/test_bin.csv")
+        assert result == os.path.normpath(
+            "./outputs/test_model/site/year/day/test_bin.csv"
+        )
 
     def test_output_path_with_custom_outdir(self):
         """Test output path with custom output directory."""
         self.args.outdir = "/custom/output/dir"
-        result = get_output_path(self.args, "test_bin", "MVCO/2006/IFCB1_2006_157/test_bin")
-        assert result == os.path.normpath("/custom/output/dir/test_model/MVCO/2006/IFCB1_2006_157/test_bin.csv")
+        result = get_output_path(
+            self.args, "test_bin", "MVCO/2006/IFCB1_2006_157/test_bin"
+        )
+        assert result == os.path.normpath(
+            "/custom/output/dir/test_model/MVCO/2006/IFCB1_2006_157/test_bin.csv"
+        )
 
     def test_bin_relative_path_none_falls_back_to_bin_id(self):
         """Test that omitting bin_relative_path uses bin_id as the full subpath."""
@@ -74,8 +88,12 @@ class TestGetOutputPath:
         Users who rely on {SUBPATH} alone should migrate to {SUBPATH}/{BIN}.
         """
         self.args.outfile = "{MODEL_NAME}/{SUBPATH}.csv"
-        result = get_output_path(self.args, "test_bin", "MVCO/2006/IFCB1_2006_157/test_bin")
-        assert result == os.path.normpath("./outputs/test_model/MVCO/2006/IFCB1_2006_157.csv")
+        result = get_output_path(
+            self.args, "test_bin", "MVCO/2006/IFCB1_2006_157/test_bin"
+        )
+        assert result == os.path.normpath(
+            "./outputs/test_model/MVCO/2006/IFCB1_2006_157.csv"
+        )
 
 
 class TestArgparseRuntimeArgs:
@@ -135,6 +153,7 @@ class TestArgparseRuntimeArgs:
 
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as f:
             import json
+
             json.dump({"0": "class1", "1": "class2", "2": "class3"}, f)
             classes_file = f.name
 
@@ -152,6 +171,7 @@ class TestArgparseRuntimeArgs:
 
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
             import json
+
             json.dump({"0": "classA", "1": "classB"}, f)
             classes_file = f.name
 
@@ -201,13 +221,22 @@ class TestOutfilePattern:
     def test_custom_outfile_pattern(self):
         """Test that a custom outfile pattern is accepted."""
         parser = argparse_init()
-        args = parser.parse_args(["--outfile", "{RUN_DATE}/{SUBPATH}.csv", "model.onnx", "bins/"])
+        args = parser.parse_args(
+            ["--outfile", "{RUN_DATE}/{SUBPATH}.csv", "model.onnx", "bins/"]
+        )
         assert args.outfile == "{RUN_DATE}/{SUBPATH}.csv"
 
     def test_combined_pattern(self):
         """Test a pattern combining multiple tokens."""
         parser = argparse_init()
-        args = parser.parse_args(["--outfile", "{MODEL_NAME}/{RUN_DATE}/{SUBPATH}.csv", "model.onnx", "bins/"])
+        args = parser.parse_args(
+            [
+                "--outfile",
+                "{MODEL_NAME}/{RUN_DATE}/{SUBPATH}.csv",
+                "model.onnx",
+                "bins/",
+            ]
+        )
         assert args.outfile == "{MODEL_NAME}/{RUN_DATE}/{SUBPATH}.csv"
 
 
