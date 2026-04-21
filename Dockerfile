@@ -8,18 +8,16 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
 
 WORKDIR /app
 
-COPY requirements.txt /app
-# Install git, install dependencies from requirements.txt, then remove git to save space
+COPY pyproject.toml /app/
+COPY src /app/src
+
+# Install git for pyifcb git dependency, install package, then remove git to save space
 RUN apt-get update && \
     apt-get install -y git && \
-    pip install -r requirements.txt && \
+    pip install ".[cuda,torch]" && \
     apt-get remove -y git && \
     apt-get autoremove -y && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy source code
-COPY src /app/src
-
-# Default command (allows overriding with arguments)
-ENTRYPOINT ["python", "src/infer_ifcbbins.py"]
+ENTRYPOINT ["ifcb-infer"]

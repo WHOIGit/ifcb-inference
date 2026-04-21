@@ -16,8 +16,18 @@ ONNX-based inference system for IFCB (Imaging FlowCytobot) data analysis. This t
 
 ## Installation
 
+| Extra | Installs | Use when |
+|---|---|---|
+| *(none)* | `onnxruntime` (CPU) | Lightweight/constrained environments — no GPU, no torch dependency |
+| `[cuda]` | `onnxruntime-gpu` | GPU inference via CUDA |
+| `[torch]` | PyTorch + torchvision | Faster/more flexible data loading; recommended when torch is already available |
+| `[cuda,torch]` | Both of the above | Full-featured GPU deployment |
+| `[dev]` | pytest, black, isort, flake8 | Development and testing |
+
+Without `[torch]`, the built-in data loader is used — suitable for constrained or lite environments where installing PyTorch is impractical (e.g. small containers, edge deployments). The `[torch]` data loader is recommended otherwise as it supports more image formats and is generally faster.
+
 ```bash
-# CPU-only (default)
+# CPU-only, no torch (lightest install)
 pip install -e .
 
 # With CUDA/GPU support
@@ -26,7 +36,7 @@ pip install -e ".[cuda]"
 # With PyTorch data loaders
 pip install -e ".[torch]"
 
-# All of the above
+# Full-featured (CUDA + PyTorch)
 pip install -e ".[cuda,torch]"
 
 # Development (includes pytest, black, isort, flake8)
@@ -48,16 +58,16 @@ ifcb-infer[cuda,torch] @ git+https://github.com/WHOIGit/amplify_onnx_inference.g
 ```bash
 ifcb-infer [OPTIONS] MODEL BINS [BINS ...]
 ```
-
+`MODEL` is the path to an onnx model file
 `BINS` can be a directory, a bin path, or a `.txt`/`.list` file of bin paths.
 
 ### Options
 
 ```
---batch N                              Required for models without a fixed input batch size
 --classes FILE                         Class list file; adds column headers to output CSVs.
                                        Accepts a line-delimited .txt or an index-keyed .json
                                        (e.g. {"0": "class_a", "1": "class_b"})
+--batch N                              Required for models without a fixed input batch size
 --outdir DIRPATH                       Output directory. Default: ./outputs
 --outfile PATTERN                      Output filename pattern. Default: {MODEL_NAME}/{SUBPATH}/{BIN}.csv
                                        Tokens: {MODEL_NAME}, {RUN_DATE}, {SUBPATH} (relative dir), {BIN} (bin name)
@@ -67,9 +77,25 @@ ifcb-infer [OPTIONS] MODEL BINS [BINS ...]
 
 By default, CUDA is used automatically when available and falls back to CPU otherwise.
 
+By default, torch-dataloaders are used automatically when available and otherwise falls back to a simpler implementation
+
+For the output csv to have column names that correspond to human-readable class names, use --classes option
+
+If a model has a predefined input batch size, that batch size is automatically used and --batch is ignored. 
+If a model does NOT have a predefined input batch size, --batch must be specified.
+
 ### Output Organization Examples
 
-`{SUBPATH}` preserves the directory structure relative to the input folder. Given:
+The output path for each bin is controlled by the `--outfile PATTERN` option (default: `{MODEL_NAME}/{SUBPATH}/{BIN}.csv`), resolved relative to `--outdir`. The available tokens are:
+
+| Token | Value |
+|---|---|
+| `{BIN}` | Bin name (e.g. `D20230108T145350_IFCB127`) |
+| `{SUBPATH}` | Directory of the bin relative to the input folder |
+| `{MODEL_NAME}` | Model filename without extension |
+| `{RUN_DATE}` | Date the command was run (`YYYY-MM-DD`) |
+
+`{SUBPATH}` mirrors the input directory hierarchy, so outputs reflect the same structure as the source data. Given:
 
 ```
 example-data/bins/
@@ -113,10 +139,10 @@ outputs/
 
 **Flat output — one folder, all bins (`--outfile "{BIN}.csv"`):**
 ```bash
-ifcb-infer --outfile "{BIN}.csv" my_classifier.onnx example-data/bins/
+ifcb-infer --outdir "my/custom/output" --outfile "{BIN}.csv" my_classifier.onnx example-data/bins/
 ```
 ```
-outputs/
+my/custom/output/
 ├── IFCB1_2006_157_181359.csv
 ├── IFCB1_2006_157_183432.csv
 ├── IFCB1_2006_157_185616.csv
@@ -148,19 +174,37 @@ outputs/
 
 ## Container Use
 
+The Dockerfile installs with `[cuda,torch]` for full GPU support.
+
+Build:
 ```bash
+# Podman
 podman build . -t ifcb-infer:latest
 podman run -it --rm -e CUDA_VISIBLE_DEVICES=1 \
        --device nvidia.com/gpu=all \
        -v $(pwd)/models:/app/models \
-       -v $(pwd)/inputs/:/app/inputs \
+       -v $(pwd)/inputs:/app/inputs \
        -v $(pwd)/outputs:/app/outputs \
-       ifcb-infer:latest models/PathToYourModel.onnx inputs/PathToBinDirectory
+       ifcb-infer:latest models/classifier.onnx inputs/
 ```
+
+To select a specific GPU, use `CUDA_VISIBLE_DEVICES`:
+
+All `ifcb-infer` options can be appended after the image name. 
+`MODEL` and `BINS` paths must refer to paths _inside_ the container as mapped by `-v`.
+
 
 ## Development
 
 ### Running Tests
+
+First install with the `[dev]` extra:
+
+```bash
+pip install -e ".[dev]"
+```
+
+Then run:
 
 ```bash
 # Run all tests
