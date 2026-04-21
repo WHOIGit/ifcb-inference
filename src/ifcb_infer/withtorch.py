@@ -25,22 +25,24 @@ def main(args):
 
     dynamic_batching = True
     if isinstance(model_batch, str):
-        assert (
-            args.batch is not None
-        ), "Must specify inference batch size for dynamically batched MODEL"
+        assert args.batch is not None, (
+            "Must specify inference batch size for dynamically batched MODEL"
+        )
         inference_batchsize = args.batch
     else:
-        assert (
-            args.batch is None or model_batch == args.batch
-        ), "MODEL is statically batched, inference batch size cannot be adjusted"
+        assert args.batch is None or model_batch == args.batch, (
+            "MODEL is statically batched, inference batch size cannot be adjusted"
+        )
         dynamic_batching = False
         inference_batchsize = model_batch
 
-    transformer = v2.Compose([
-        v2.Resize((img_size, img_size)),
-        v2.ToImage(),
-        v2.ToDtype(input_type, scale=True),
-    ])
+    transformer = v2.Compose(
+        [
+            v2.Resize((img_size, img_size)),
+            v2.ToImage(),
+            v2.ToDtype(input_type, scale=True),
+        ]
+    )
 
     pbar = tqdm(
         args.BINS,
@@ -82,7 +84,10 @@ def main(args):
         dataloader = DataLoader(
             dataset, batch_size=inference_batchsize, num_workers=0, drop_last=False
         )
-        bin_pid = list(dataset.iter_binfilesets())[0].pid.pid
+        if binfilesets := list(dataset.iter_binfilesets()):
+            bin_pid = binfilesets[0].pid.pid
+        else:
+            bin_pid = bin_id  # fallback for empty binfilesets
 
         expected_output_path = get_output_path(args, bin_pid, bin_relative_path)
         if os.path.exists(expected_output_path):
