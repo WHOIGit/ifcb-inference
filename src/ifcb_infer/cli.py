@@ -31,10 +31,11 @@ def argparse_init(parser=None):
         "-c",
         help="Path to row-delimited classlist file. Required for output-csv's headers",
     )
-    parser.add_argument("--outdir", default="./outputs", help='Default is "./outputs"')
+    parser.add_argument(
+        "--outdir", "-o", default="./outputs", help='Default is "./outputs"'
+    )
     parser.add_argument(
         "--outfile",
-        "-o",
         default="{MODEL_NAME}/{SUBPATH}/{BIN}.csv",
         help='Output filename pattern. Tokens: {MODEL_NAME}, {RUN_DATE}, {SUBPATH} (relative dir), {BIN} (bin name). Default is "{MODEL_NAME}/{SUBPATH}/{BIN}.csv"',
     )
@@ -82,7 +83,9 @@ def argparse_runtime_args(args):
     bin_to_input_dir = {}
     for bin_thing in args.BINS:
         if os.path.isdir(bin_thing):
-            leaf_dirs = ifcb.data.files.list_data_dirs(bin_thing, blacklist=_DIR_BLACKLIST)
+            leaf_dirs = ifcb.data.files.list_data_dirs(
+                bin_thing, blacklist=_DIR_BLACKLIST
+            )
             bin_paths = []
             for leaf_dir in leaf_dirs:
                 dd = ifcb.DataDirectory(leaf_dir)
@@ -152,7 +155,7 @@ def write_output(args, bin_id, pids, score_matrix, bin_relative_path=None):
 
 
 def main():
-    ort.preload_dlls(directory="")
+    # ort.preload_dlls(directory="") useful for TRT on Windows
 
     parser = argparse_init()
     args = parser.parse_args()
