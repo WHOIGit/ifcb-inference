@@ -54,9 +54,11 @@ def argparse_init(parser=None):
 
 
 def get_providers(args):
-    if args.cpuonly:
+    available_providers = ort.get_available_providers()
+    if args.cpuonly or "CUDAExecutionProvider" not in available_providers:
         return ["CPUExecutionProvider"]
-    return ort.get_available_providers()
+    else:
+        return ["CUDAExecutionProvider", "CPUExecutionProvider"]
 
 
 def argparse_runtime_args(args):

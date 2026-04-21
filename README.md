@@ -31,6 +31,11 @@ ONNX-based inference system for IFCB (Imaging FlowCytobot) bin data. This tool p
 # Full featured install
 pip install "ifcb-infer[cuda,torch] @ git+https://github.com/WHOIGit/ifcb-inference.git"
 
+# GPU enabled, but without pytorch dependencies
+pip install "ifcb-infer[cuda] @ git+https://github.com/WHOIGit/ifcb-inference.git"
+export LD_LIBRARY_PATH=$(pip show nvidia-cudnn-cu12 | grep Location | awk '{print $2}')/nvidia/cudnn/lib:$LD_LIBRARY_PATH
+# see "cuDNN requirement for `[cuda]` without `[torch]`" LD_LIBRARY_PATH note below
+
 # Lightest install
 pip install "ifcb-infer[cpu] @ git+https://github.com/WHOIGit/ifcb-inference.git"
 ```
@@ -40,6 +45,18 @@ If cloning the repo and developing locally:
 # Full-featured install (gpu/CUDA + PyTorch)
 pip install -e ".[cuda,torch,dev]"
 ```
+
+### cuDNN requirement for `[cuda]` without `[torch]`
+
+`[cuda,torch]` works out of the box — PyTorch bundles its own cuDNN libraries and ORT finds them automatically.
+
+`[cuda]` alone installs `nvidia-cudnn-cu12` via pip, but ORT cannot find it without help because the libraries land in `site-packages`, not a standard system path. If you don't have libcudnn9-cuda-12 installed globally/to a standard location, it must be explicitely set with `LD_LIBRARY_PATH`. 
+
+Setting `LD_LIBRARY_PATH` to point to the pip-installed cuDNN:**
+```bash
+export LD_LIBRARY_PATH=$(pip show nvidia-cudnn-cu12 | grep Location | awk '{print $2}')/nvidia/cudnn/lib:$LD_LIBRARY_PATH
+```
+Add this to your environment profile (`.bashrc`, `.bash_profile`, venv/bin/activate script) to make it persistent.
 
 ## Usage
 
