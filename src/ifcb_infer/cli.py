@@ -49,6 +49,11 @@ def argparse_init(parser=None):
         action="store_true",
         help="Force CPU-only inference, disabling CUDA even if available",
     )
+    parser.add_argument(
+        "--skip-ensure-softmax",
+        action="store_true",
+        help="Skip softmax normalization check on model output",
+    )
 
     return parser
 
@@ -114,6 +119,18 @@ def softmax(x, axis=None):
     return exp_x_shifted / np.sum(exp_x_shifted, axis=axis, keepdims=True)
 
 
+def is_row_softmaxed(row, tol=1e-5):
+    if np.any(row < 0) or np.any(row > 1):
+        return False
+    return np.isclose(np.sum(row), 1.0, atol=tol)
+
+
+def ensure_softmax(score_matrix):
+    if not is_row_softmaxed(score_matrix[0]):
+        return softmax(score_matrix, axis=1)
+    return score_matrix
+
+
 def pad_batch(batch: np.ndarray, target_batch_size: int):
     current_size = batch.shape[0]
     if current_size == target_batch_size:
@@ -149,6 +166,8 @@ def write_output(args, bin_id, pids, score_matrix, bin_relative_path=None):
         if args.classes:
             f.write(",".join(["pid"] + args.classes) + "\n")
         if score_matrix is not None:
+            if not args.skip_ensure_softmax:
+                score_matrix = ensure_softmax(score_matrix)
             for pid, score_row in zip(pids, score_matrix):
                 str_row = ",".join(map(str, [pid] + score_row.tolist()))
                 f.write(str_row + "\n")

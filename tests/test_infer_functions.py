@@ -4,9 +4,15 @@ import datetime as dt
 import os
 import tempfile
 
+import numpy as np
 import pytest
 
-from ifcb_infer.cli import argparse_init, argparse_runtime_args, get_output_path
+from ifcb_infer.cli import (
+    argparse_init,
+    argparse_runtime_args,
+    ensure_softmax,
+    get_output_path,
+)
 
 # The torch and notorch variants share a single argparse/runtime implementation.
 argparse_init_torch = argparse_init
@@ -299,6 +305,25 @@ def test_model_name_extraction(model_path, expected_name, mocker):
     argparse_runtime_args(args)
 
     assert args.model_name == expected_name
+
+
+class TestEnsureSoftmax:
+    def test_logits_are_softmaxed(self):
+        logits = np.array([[2.0, 1.0, 0.1], [0.5, 2.5, 1.0]])
+        result = ensure_softmax(logits)
+        row_sums = result.sum(axis=1)
+        np.testing.assert_allclose(row_sums, np.ones(2), atol=1e-6)
+        assert np.all(result >= 0) and np.all(result <= 1)
+
+    def test_already_softmaxed_returned_as_is(self):
+        probs = np.array([[0.7, 0.2, 0.1], [0.1, 0.1, 0.8]])
+        result = ensure_softmax(probs)
+        np.testing.assert_array_equal(result, probs)
+
+    def test_negative_values_trigger_softmax(self):
+        logits = np.array([[-1.0, 0.0, 1.0]])
+        result = ensure_softmax(logits)
+        np.testing.assert_allclose(result.sum(axis=1), [1.0], atol=1e-6)
 
 
 if __name__ == "__main__":
