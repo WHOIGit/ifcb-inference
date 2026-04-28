@@ -85,7 +85,7 @@ def main(args):
             dataset, batch_size=inference_batchsize, num_workers=0, drop_last=False
         )
         if binfilesets := list(dataset.iter_binfilesets()):
-            bin_pid = binfilesets[0].pid.pid
+            bin_pid = binfilesets[0]["pid"]
         else:
             bin_pid = bin_id  # fallback for empty binfilesets
 

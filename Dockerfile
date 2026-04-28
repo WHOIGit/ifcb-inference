@@ -11,7 +11,7 @@ WORKDIR /app
 COPY pyproject.toml /app/
 COPY src /app/src
 
-# Install git for pyifcb git dependency, install package, then remove git to save space
+# Install git for ifcbkit git dependency, install package, then remove git to save space
 RUN apt-get update && \
     apt-get install -y git && \
     pip install ".[cuda,torch]" && \

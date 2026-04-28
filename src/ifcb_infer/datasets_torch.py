@@ -5,9 +5,8 @@ from functools import cache
 from typing import Union
 
 import humanize
-import ifcb
+import ifcbkit
 import torch
-from ifcb.data.stitching import InfilledImages
 from torch.utils.data import IterableDataset
 from torchvision.transforms import v2
 from tqdm import tqdm
@@ -31,13 +30,12 @@ class IfcbBinsDataset(IterableDataset):
         self.bin_whitelist = bin_whitelist or []
         self.bin_blacklist = bin_blacklist or []
         self.dir_blacklist = dir_blacklist
-        self.dir_whitelist = dir_whitelist or []
-        bin_dirs = [
-            ifcb.data.files.list_data_dirs(bin_dir, blacklist=dir_blacklist)
+        leaf_dirs = [
+            ifcbkit.sync_list_data_dirs(bin_dir, exclude=dir_blacklist)
             for bin_dir in bin_dirs
         ]
         self.bin_dirs = sorted(
-            itertools.chain.from_iterable(bin_dirs), key=lambda p: os.path.basename(p)
+            itertools.chain.from_iterable(leaf_dirs), key=lambda p: os.path.basename(p)
         )  # flatten
         self.shuffle = shuffle
         if self.shuffle:
@@ -52,79 +50,56 @@ class IfcbBinsDataset(IterableDataset):
 
     def _get_worker_chunk(self):
         worker_info = torch.utils.data.get_worker_info()
-        dds = [
-            ifcb.DataDirectory(
-                bin_dir, whitelist=self.dir_whitelist, blacklist=self.dir_blacklist
-            )
-            for bin_dir in self.bin_dirs
-        ]
+        dirs = list(self.bin_dirs)
         if worker_info is None:
-            if self.shuffle:  # shuffle order of all data directories
-                random.shuffle(dds)
-            iter_chunk = dds  # all of it
-        else:
-            # split up the work
-            N = worker_info.num_workers
-            n, m = divmod(len(dds), N)
-            per_worker = [
-                dds[i * n + min(i, m) : (i + 1) * n + min(i + 1, m)] for i in range(N)
-            ]
-            worker_id = worker_info.id
-            iter_chunk = per_worker[worker_id]
             if self.shuffle:
-                random.shuffle(iter_chunk)
-        return iter_chunk
+                random.shuffle(dirs)
+            return dirs
+        else:
+            N = worker_info.num_workers
+            n, m = divmod(len(dirs), N)
+            per_worker = [
+                dirs[i * n + min(i, m) : (i + 1) * n + min(i + 1, m)] for i in range(N)
+            ]
+            chunk = per_worker[worker_info.id]
+            if self.shuffle:
+                random.shuffle(chunk)
+            return chunk
 
     def __iter__(self):
-        for binfileset in self.iter_binfilesets():
-            with binfileset:
-                # old-style bins need to be stitched and infilled
-                if binfileset.schema == ifcb.SCHEMA_VERSION_1:
-                    bin_images = InfilledImages(binfileset)
-                else:
-                    bin_images = binfileset.images
-
-                for target_number, roi in bin_images.items():
-                    target_pid = binfileset.pid.with_target(target_number)
-                    img = v2.ToPILImage(mode="L")(roi)
-                    img = img.convert("RGB")
-                    if self.transform is not None:
-                        img = self.transform(img)
-                    if self.with_sources:
-                        yield img, target_pid
-                    else:
-                        yield img
+        for entry in self.iter_binfilesets():
+            yield from self.iter_bin_images(
+                entry, transform=self.transform, with_sources=self.with_sources
+            )
 
     def iter_binfilesets(self):
-        worker_chunk = self._get_worker_chunk()
-        for dd in worker_chunk:
-            for binfileset in dd:
-                with binfileset:
-                    if self.bin_whitelist and binfileset.pid not in self.bin_whitelist:
-                        continue
-                    if binfileset.pid in self.bin_blacklist:
-                        continue
-                    yield binfileset
+        for bin_dir in self._get_worker_chunk():
+            dd = ifcbkit.SyncIfcbDataDirectory(bin_dir)
+            for entry in dd.list():
+                bin_pid = entry["pid"]
+                if self.bin_whitelist and bin_pid not in self.bin_whitelist:
+                    continue
+                if bin_pid in self.bin_blacklist:
+                    continue
+                yield entry
 
     @staticmethod
-    def iter_bin_images(binfileset, transform=None, with_sources=True):
-        with binfileset:
-            # old-style bins need to be stitched and infilled
-            if binfileset.schema == ifcb.SCHEMA_VERSION_1:
-                bin_images = InfilledImages(binfileset)
+    def iter_bin_images(entry, transform=None, with_sources=True):
+        bin_pid = entry["pid"]
+        with open(entry["adc"], "rb") as f:
+            adc_bytes = f.read()
+        with open(entry["roi"], "rb") as f:
+            roi_bytes = f.read()
+        images = ifcbkit.bin_images(bin_pid, adc_bytes, roi_bytes)
+        for target_number, roi in images.items():
+            target_pid = ifcbkit.add_target(bin_pid, target_number)
+            img = roi.convert("RGB")
+            if transform is not None:
+                img = transform(img)
+            if with_sources:
+                yield img, target_pid
             else:
-                bin_images = binfileset.images
-
-            for target_number, roi in bin_images.items():
-                target_pid = binfileset.pid.with_target(target_number)
-                img = v2.ToPILImage(mode="L")(roi)
-                img = img.convert("RGB")
-                if transform is not None:
-                    img = transform(img)
-                if with_sources:
-                    yield img, target_pid
-                else:
-                    yield img
+                yield img
 
     @cache
     def calculate_len(self):
@@ -132,15 +107,16 @@ class IfcbBinsDataset(IterableDataset):
         bin_sum = 0
         pbar = tqdm(self.bin_dirs, desc="caching dataset length")
         for bin_dir in pbar:
-            for binfileset in ifcb.DataDirectory(bin_dir, whitelist=self.dir_whitelist):
-                with binfileset:
-                    if self.bin_whitelist and binfileset.pid not in self.bin_whitelist:
-                        continue
-                    if binfileset.pid in self.bin_blacklist:
-                        continue
-                    bin_sum += 1
-                    bin_count = len(binfileset.images)  # vs len(ifcbbin).
-                    count_sum += bin_count
+            dd = ifcbkit.SyncIfcbDataDirectory(bin_dir)
+            for entry in dd.list():
+                bin_pid = entry["pid"]
+                if self.bin_whitelist and bin_pid not in self.bin_whitelist:
+                    continue
+                if bin_pid in self.bin_blacklist:
+                    continue
+                bin_sum += 1
+                bin_count = len(dd.list_images(bin_pid))
+                count_sum += bin_count
             pbar.set_postfix(
                 dict(BINs=humanize.intcomma(bin_sum), ROIs=humanize.intword(count_sum))
             )

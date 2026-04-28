@@ -2,7 +2,7 @@ import os.path
 import random
 from typing import Union
 
-import ifcb
+import ifcbkit
 import numpy as np
 from PIL import Image
 
@@ -36,16 +36,15 @@ class MyDataLoader:
 
 class IfcbBinDataset:
     def __init__(self, bin_accessor: str):
-        if bin_accessor.startswith("http"):
-            opener = ifcb.open_url
-        else:
-            opener = ifcb.open_raw
-        with opener(bin_accessor) as ifcbbin:
-            self.pid = ifcbbin.pid.pid
-            self.roi_data = list(ifcbbin.images.values())
-            self.roi_pids = [
-                ifcbbin.pid.with_target(idx) for idx in ifcbbin.images.keys()
-            ]
+        bin_id = os.path.basename(bin_accessor)
+        with open(bin_accessor + ".adc", "rb") as f:
+            adc_bytes = f.read()
+        with open(bin_accessor + ".roi", "rb") as f:
+            roi_bytes = f.read()
+        images = ifcbkit.bin_images(bin_id, adc_bytes, roi_bytes)
+        self.pid = bin_id
+        self.roi_data = [np.array(img) for img in images.values()]
+        self.roi_pids = [ifcbkit.add_target(bin_id, t) for t in images.keys()]
 
     def __len__(self):
         return len(self.roi_pids)

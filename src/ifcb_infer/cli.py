@@ -3,7 +3,7 @@ import datetime as dt
 import json
 import os
 
-import ifcb
+import ifcbkit
 import numpy as np
 import onnxruntime as ort
 
@@ -90,13 +90,13 @@ def argparse_runtime_args(args):
     bin_to_input_dir = {}
     for bin_thing in args.BINS:
         if os.path.isdir(bin_thing):
-            leaf_dirs = ifcb.data.files.list_data_dirs(
-                bin_thing, blacklist=_DIR_BLACKLIST
-            )
             bin_paths = []
-            for leaf_dir in leaf_dirs:
-                dd = ifcb.DataDirectory(leaf_dir)
-                bin_paths.extend(binobj.fileset.basepath for binobj in dd)
+            for leaf_dir in ifcbkit.sync_list_data_dirs(
+                bin_thing, exclude=_DIR_BLACKLIST
+            ):
+                dd = ifcbkit.SyncIfcbDataDirectory(leaf_dir)
+                for entry in dd.list():
+                    bin_paths.append(os.path.splitext(entry["hdr"])[0])
             bins.extend(bin_paths)
             for bin_path in bin_paths:
                 bin_to_input_dir[bin_path] = bin_thing

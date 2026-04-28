@@ -265,16 +265,15 @@ class TestBinDirectoryMapping:
 
         # Mock directory and file checks
         mock_isdir = mocker.patch("os.path.isdir")
-        mocker.patch("ifcb.data.files.list_data_dirs", return_value=["dir1"])
-        mock_dd = mocker.patch("ifcb.DataDirectory")
+        mocker.patch("ifcbkit.sync_list_data_dirs", return_value=["dir1"])
+        mock_dd_class = mocker.patch("ifcbkit.SyncIfcbDataDirectory")
+        mock_dd_instance = mock_dd_class.return_value
+        mock_dd_instance.list.return_value = [
+            {"pid": "bin1", "hdr": "dir1/bin1.hdr", "adc": "dir1/bin1.adc", "roi": "dir1/bin1.roi"}
+        ]
 
         # Set up mocks
         mock_isdir.side_effect = lambda x: x == "dir1"
-
-        mock_bin_obj = type("BinObj", (), {})()
-        mock_bin_obj.fileset = type("FileSet", (), {})()
-        mock_bin_obj.fileset.basepath = "dir1/bin1"
-        mock_dd.return_value = [mock_bin_obj]
 
         argparse_runtime_args(self.args)
 
