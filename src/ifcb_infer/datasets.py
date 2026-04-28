@@ -70,9 +70,9 @@ class IfcbImagesDataset:
                 img = img.convert("L")
                 img = np.array(img)
         elif image_acccessor.startswith("http"):
-            raise NotImplemented
+            raise NotImplementedError
         else:
-            raise NotImplemented
+            raise NotImplementedError
         return img
 
 

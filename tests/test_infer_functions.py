@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import datetime as dt
 import os
 import tempfile
 
@@ -269,7 +268,12 @@ class TestBinDirectoryMapping:
         mock_dd_class = mocker.patch("ifcbkit.SyncIfcbDataDirectory")
         mock_dd_instance = mock_dd_class.return_value
         mock_dd_instance.list.return_value = [
-            {"pid": "bin1", "hdr": "dir1/bin1.hdr", "adc": "dir1/bin1.adc", "roi": "dir1/bin1.roi"}
+            {
+                "pid": "bin1",
+                "hdr": "dir1/bin1.hdr",
+                "adc": "dir1/bin1.adc",
+                "roi": "dir1/bin1.roi",
+            }
         ]
 
         # Set up mocks

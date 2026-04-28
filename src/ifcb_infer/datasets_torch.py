@@ -156,7 +156,7 @@ def make_dataset(source, resize, img_norm=None, dtype=torch.float32):
     if img_norm:
         norm = v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         transforms.insert(2, norm)
-        raise NotImplemented
+        raise NotImplementedError
     transform = v2.Compose(transforms)
 
     dataset = IfcbBinsDataset(
