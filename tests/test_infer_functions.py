@@ -359,6 +359,9 @@ def _build_tiny_classifier(path, in_dim=4, n_classes=3):
     )
     graph = helper.make_graph([relu, gemm], "tiny", [inp], [out], [w, b])
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+    # Pin a conservative IR version: newer onnx defaults to IR 13, but the
+    # onnxruntime on CI may only support up to IR 11. Opset 13 needs IR >= 7.
+    model.ir_version = 10
     onnx.checker.check_model(model)
     onnx.save(model, path)
 
