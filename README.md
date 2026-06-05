@@ -22,6 +22,7 @@ ONNX-based inference system for IFCB (Imaging FlowCytobot) bin data. This tool p
 | `[cuda]` | `onnxruntime-gpu` | GPU inference via CUDA |
 | `[torch]` | PyTorch + torchvision | Faster/more flexible data loading, but more dependancies |
 | `[cuda,torch]` | Both of the above | Full-featured install |
+| `[embeddings]` | pyarrow | Writing embedding vectors as Parquet (see [Embeddings](#embeddings)) |
 | `[dev]` | pytest, black, isort, flake8 | Development and testing |
 
 - One of `[cpu]` or `[cuda]` must be used to have the appropriate onnxruntime. They are mutually exclusive. If neither are included, at install, `ifcb-infer` will be unable to run. If in doubt, use `[cuda]`.
@@ -78,6 +79,10 @@ ifcb-infer [OPTIONS] MODEL BINS [BINS ...]
                                        Tokens: {MODEL_NAME}, {RUN_DATE}, {SUBPATH} (relative dir), {BIN} (bin name)
 --cpuonly                              Force CPU inference even if CUDA is available
 --notorch                              Use non-PyTorch data loader even if torch is installed
+--embeddings                           Also emit penultimate-layer embedding vectors (see Embeddings)
+--embeddings-only                      Emit only embeddings, skip the score CSV (implies --embeddings)
+--embeddings-outfile PATTERN           Embedding filename pattern. Same tokens as --outfile.
+                                       Default: {MODEL_NAME}/{SUBPATH}/{BIN}.emb.parquet
 ```
 
 - By default, CUDA is used automatically when available/installed and otherwise falls back to using CPU.
@@ -173,6 +178,36 @@ outputs/
     ├── OTZ/2019/D20190723/D20190723T161602_IFCB127.csv
     └── OTZ/2019/D20190723/D20190723T171832_IFCB127.csv
 ```
+
+## Embeddings
+
+In addition to class scores, `ifcb-infer` can emit the CNN's **penultimate-layer embedding** — the global-pooled feature vector that feeds the classification head. No retraining is needed: the embedding is an intermediate activation the trained model already computes on every forward pass; it just needs to be surfaced as a model output.
+
+This is a two-step workflow:
+
+**1. One-time graph surgery.** ONNX Runtime only returns tensors declared in the model's graph outputs. Add the embedding tensor as a second output:
+
+```bash
+python -m ifcb_infer.add_embedding_output classifier.onnx classifier_emb.onnx
+```
+
+The embedding tensor is auto-detected as the data input of the final `Gemm`/`MatMul` (the classification head). For a non-standard architecture, override it with `--tensor-name`. The resulting model returns `[scores, embedding]` from one forward pass and is otherwise identical to the original.
+
+**2. Run inference with `--embeddings`** against the surgically-modified model:
+
+```bash
+# install the extra once: pip install -e ".[embeddings]"
+ifcb-infer --embeddings --classes classes.txt classifier_emb.onnx example-data/bins/
+```
+
+Each bin gets, alongside its `.csv` of scores, an `.emb.parquet` file with one row per ROI:
+
+| Column | Type | Notes |
+|---|---|---|
+| `pid` | string | ROI identifier (aligned with the score CSV) |
+| `embedding` | `fixed_size_list<float16>` | the feature vector (e.g. length 2048 for InceptionV3) |
+
+Embeddings are stored at **float16** to halve on-disk size — ample precision for similarity, clustering, and visualization. The output path follows `--embeddings-outfile` (same tokens as `--outfile`). Use `--embeddings-only` to skip writing the score CSV. Running `--embeddings` against an unmodified (single-output) model raises an error pointing back to step 1.
 
 ## Container Use
 

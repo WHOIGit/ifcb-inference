@@ -54,6 +54,23 @@ def argparse_init(parser=None):
         action="store_true",
         help="Skip softmax normalization check on model output",
     )
+    parser.add_argument(
+        "--embeddings",
+        action="store_true",
+        help="Emit penultimate-layer embedding vectors. Requires a MODEL whose "
+        "graph exposes the embedding tensor (see add_embedding_output).",
+    )
+    parser.add_argument(
+        "--embeddings-only",
+        action="store_true",
+        help="Skip writing the score CSV; write only embeddings. Implies --embeddings.",
+    )
+    parser.add_argument(
+        "--embeddings-outfile",
+        default="{MODEL_NAME}/{SUBPATH}/{BIN}.emb.parquet",
+        help="Embedding output filename pattern. Same tokens as --outfile. "
+        'Default is "{MODEL_NAME}/{SUBPATH}/{BIN}.emb.parquet"',
+    )
 
     return parser
 
@@ -71,6 +88,9 @@ def argparse_runtime_args(args):
     args.run_date_str, args.run_time_str = args.cmd_timestamp.split("T")
 
     args.model_name = os.path.splitext(os.path.basename(args.MODEL))[0]
+
+    if getattr(args, "embeddings_only", False):
+        args.embeddings = True
 
     gpu_str = os.environ.get("CUDA_VISIBLE_DEVICES", "")
     args.gpus = [int(gpu) for gpu in gpu_str.split(",") if gpu.strip()]
@@ -145,11 +165,11 @@ def pad_batch(batch: np.ndarray, target_batch_size: int):
     return np.concatenate([batch, pad], axis=0)
 
 
-def get_output_path(args, bin_id, bin_relative_path=None):
+def _format_output_path(args, outfile, bin_id, bin_relative_path=None):
     full_subpath = bin_relative_path if bin_relative_path is not None else bin_id
     subpath_dir = os.path.dirname(full_subpath)
     bin_name = os.path.basename(full_subpath)
-    outpath = os.path.join(args.outdir, args.outfile)
+    outpath = os.path.join(args.outdir, outfile)
     result = outpath.format(
         RUN_DATE=args.run_date_str,
         MODEL_NAME=args.model_name,
@@ -157,6 +177,14 @@ def get_output_path(args, bin_id, bin_relative_path=None):
         BIN=bin_name,
     )
     return os.path.normpath(result)
+
+
+def get_output_path(args, bin_id, bin_relative_path=None):
+    return _format_output_path(args, args.outfile, bin_id, bin_relative_path)
+
+
+def get_embedding_output_path(args, bin_id, bin_relative_path=None):
+    return _format_output_path(args, args.embeddings_outfile, bin_id, bin_relative_path)
 
 
 def write_output(args, bin_id, pids, score_matrix, bin_relative_path=None):
@@ -173,6 +201,42 @@ def write_output(args, bin_id, pids, score_matrix, bin_relative_path=None):
                 f.write(str_row + "\n")
         else:
             print(f"Warning: No data processed for bin {bin_id}")
+
+
+def resolve_emit_embeddings(args, ort_session):
+    """Decide whether to emit embeddings for this run, validating that the model
+    actually exposes the embedding output when --embeddings was requested."""
+    emit = args.embeddings and len(ort_session.get_outputs()) > 1
+    if args.embeddings and not emit:
+        raise ValueError(
+            "--embeddings requested but MODEL exposes a single output. Run "
+            "`python -m ifcb_infer.add_embedding_output` to add the embedding "
+            "tensor to the model's graph outputs."
+        )
+    return emit
+
+
+def write_embeddings(args, bin_id, pids, embedding_matrix, bin_relative_path=None):
+    if embedding_matrix is None:
+        print(f"Warning: No embeddings processed for bin {bin_id}")
+        return
+
+    # Imported lazily so non-embedding runs don't require pyarrow.
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    outpath = get_embedding_output_path(args, bin_id, bin_relative_path)
+    os.makedirs(os.path.dirname(outpath), exist_ok=True)
+
+    embedding_matrix = np.ascontiguousarray(embedding_matrix.astype(np.float16))
+    n_rows, dim = embedding_matrix.shape
+    embedding_col = pa.FixedSizeListArray.from_arrays(
+        pa.array(embedding_matrix.reshape(-1), type=pa.float16()), dim
+    )
+    table = pa.table(
+        {"pid": pa.array(list(pids), type=pa.string()), "embedding": embedding_col}
+    )
+    pq.write_table(table, outpath)
 
 
 def main():
