@@ -10,7 +10,10 @@ from ifcb_infer.cli import (
     argparse_init,
     argparse_runtime_args,
     ensure_softmax,
+    get_embedding_output_path,
     get_output_path,
+    resolve_emit_embeddings,
+    write_embeddings,
 )
 
 # The torch and notorch variants share a single argparse/runtime implementation.
@@ -327,6 +330,189 @@ class TestEnsureSoftmax:
         logits = np.array([[-1.0, 0.0, 1.0]])
         result = ensure_softmax(logits)
         np.testing.assert_allclose(result.sum(axis=1), [1.0], atol=1e-6)
+
+
+def _build_tiny_classifier(path, in_dim=4, n_classes=3):
+    """Build a minimal ONNX classifier: data -> Relu (the embedding) -> Gemm.
+
+    The Relu output is the penultimate tensor that add_embedding_output should
+    auto-detect as the embedding.
+    """
+    import onnx
+    from onnx import TensorProto, helper, numpy_helper
+
+    relu = helper.make_node("Relu", ["data"], ["feat"], name="relu")
+    # transB=1: weight is [n_classes, in_dim] (like torch fc.weight), so the
+    # Gemm computes feat[batch,in_dim] @ W^T -> [batch, n_classes].
+    gemm = helper.make_node("Gemm", ["feat", "W", "b"], ["output"], name="fc", transB=1)
+
+    w = numpy_helper.from_array(
+        np.ones((n_classes, in_dim), dtype=np.float32), name="W"
+    )
+    b = numpy_helper.from_array(np.zeros((n_classes,), dtype=np.float32), name="b")
+
+    inp = helper.make_tensor_value_info(
+        "data", TensorProto.FLOAT, ["batch_size", in_dim]
+    )
+    out = helper.make_tensor_value_info(
+        "output", TensorProto.FLOAT, ["batch_size", n_classes]
+    )
+    graph = helper.make_graph([relu, gemm], "tiny", [inp], [out], [w, b])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+    # Pin a conservative IR version: newer onnx defaults to IR 13, but the
+    # onnxruntime on CI may only support up to IR 11. Opset 13 needs IR >= 7.
+    model.ir_version = 10
+    onnx.checker.check_model(model)
+    onnx.save(model, path)
+
+
+class TestAddEmbeddingOutput:
+    """Test the ONNX graph surgery in add_embedding_output."""
+
+    def test_auto_detect_embedding_tensor(self, tmp_path):
+        import onnx
+
+        from ifcb_infer.add_embedding_output import detect_embedding_tensor
+
+        src = str(tmp_path / "tiny.onnx")
+        _build_tiny_classifier(src)
+        model = onnx.load(src)
+        assert detect_embedding_tensor(model.graph) == "feat"
+
+    def test_adds_second_output_and_runs(self, tmp_path):
+        import onnxruntime as ort
+
+        from ifcb_infer.add_embedding_output import add_embedding_output
+
+        src = str(tmp_path / "tiny.onnx")
+        dst = str(tmp_path / "tiny_emb.onnx")
+        _build_tiny_classifier(src, in_dim=4, n_classes=3)
+        add_embedding_output(src, dst)
+
+        sess = ort.InferenceSession(dst, providers=["CPUExecutionProvider"])
+        out_names = [o.name for o in sess.get_outputs()]
+        assert len(out_names) == 2
+        assert out_names[1] == "feat"
+
+        x = np.array([[1.0, -2.0, 3.0, 4.0]], dtype=np.float32)
+        logits, emb = sess.run(None, {"data": x})
+        assert logits.shape == (1, 3)
+        assert emb.shape == (1, 4)
+        # embedding is Relu(data): negatives clamped to 0
+        np.testing.assert_array_equal(emb, np.array([[1.0, 0.0, 3.0, 4.0]]))
+
+    def test_idempotent_when_already_output(self, tmp_path):
+        import onnx
+
+        from ifcb_infer.add_embedding_output import add_embedding_output
+
+        src = str(tmp_path / "tiny.onnx")
+        dst = str(tmp_path / "tiny_emb.onnx")
+        dst2 = str(tmp_path / "tiny_emb2.onnx")
+        _build_tiny_classifier(src)
+        add_embedding_output(src, dst)
+        # Re-running on the already-modified model must not add a duplicate.
+        add_embedding_output(dst, dst2, tensor_name="feat")
+        model = onnx.load(dst2)
+        assert [o.name for o in model.graph.output] == ["output", "feat"]
+
+    def test_explicit_tensor_name_override(self, tmp_path):
+        import onnx
+
+        from ifcb_infer.add_embedding_output import add_embedding_output
+
+        src = str(tmp_path / "tiny.onnx")
+        dst = str(tmp_path / "tiny_emb.onnx")
+        _build_tiny_classifier(src)
+        add_embedding_output(src, dst, tensor_name="feat")
+        model = onnx.load(dst)
+        assert "feat" in [o.name for o in model.graph.output]
+
+
+class _FakeSession:
+    def __init__(self, n_outputs):
+        self._outs = [type("O", (), {"name": f"out{i}"})() for i in range(n_outputs)]
+
+    def get_outputs(self):
+        return self._outs
+
+
+class TestResolveEmitEmbeddings:
+    def test_off_by_default(self):
+        args = type("Args", (), {"embeddings": False})()
+        assert resolve_emit_embeddings(args, _FakeSession(1)) is False
+        assert resolve_emit_embeddings(args, _FakeSession(2)) is False
+
+    def test_on_with_dual_output_model(self):
+        args = type("Args", (), {"embeddings": True})()
+        assert resolve_emit_embeddings(args, _FakeSession(2)) is True
+
+    def test_raises_on_single_output_model(self):
+        args = type("Args", (), {"embeddings": True})()
+        with pytest.raises(ValueError, match="single output"):
+            resolve_emit_embeddings(args, _FakeSession(1))
+
+
+class TestWriteEmbeddings:
+    def setup_method(self):
+        self.args = type("Args", (), {})()
+        self.args.outdir = "./outputs"
+        self.args.run_date_str = "2025-01-15"
+        self.args.model_name = "test_model"
+        self.args.embeddings_outfile = "{MODEL_NAME}/{SUBPATH}/{BIN}.emb.parquet"
+
+    def test_embedding_output_path(self):
+        result = get_embedding_output_path(
+            self.args, "test_bin", "MVCO/2023/D20230108/test_bin"
+        )
+        assert result == os.path.normpath(
+            "./outputs/test_model/MVCO/2023/D20230108/test_bin.emb.parquet"
+        )
+
+    def test_writes_parquet_float16_with_pids(self, tmp_path):
+        pytest.importorskip("pyarrow")
+        import pyarrow.parquet as pq
+
+        self.args.outdir = str(tmp_path)
+        pids = ["pidA", "pidB"]
+        emb = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
+        write_embeddings(self.args, "test_bin", pids, emb)
+
+        outpath = get_embedding_output_path(self.args, "test_bin")
+        assert os.path.exists(outpath)
+        table = pq.read_table(outpath)
+        assert table.column_names == ["pid", "embedding"]
+        assert table.column("pid").to_pylist() == pids
+        emb_back = np.array(table.column("embedding").to_pylist())
+        assert emb_back.shape == (2, 3)
+        assert (
+            table.schema.field("embedding").type.value_type
+            == __import__("pyarrow").float16()
+        )
+        np.testing.assert_array_equal(emb_back, emb)
+
+    def test_none_matrix_writes_nothing(self, tmp_path):
+        self.args.outdir = str(tmp_path)
+        write_embeddings(self.args, "test_bin", [], None)
+        assert not os.path.exists(get_embedding_output_path(self.args, "test_bin"))
+
+
+class TestEmbeddingArgparse:
+    def test_embeddings_flags_default_off(self):
+        parser = argparse_init()
+        args = parser.parse_args(["model.onnx", "bins/"])
+        assert args.embeddings is False
+        assert args.embeddings_only is False
+        assert args.embeddings_outfile == "{MODEL_NAME}/{SUBPATH}/{BIN}.emb.parquet"
+
+    def test_embeddings_only_implies_embeddings(self, mocker):
+        mock_datetime = mocker.patch("datetime.datetime")
+        mock_datetime.now.return_value.isoformat.return_value = "2025-01-15T14:30:45"
+        parser = argparse_init()
+        args = parser.parse_args(["--embeddings-only", "model.onnx", "bins/"])
+        args.BINS = []
+        argparse_runtime_args(args)
+        assert args.embeddings is True
 
 
 if __name__ == "__main__":

@@ -7,7 +7,15 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import v2
 from tqdm import tqdm
 
-from ifcb_infer.cli import get_output_path, get_providers, pad_batch, write_output
+from ifcb_infer.cli import (
+    get_embedding_output_path,
+    get_output_path,
+    get_providers,
+    pad_batch,
+    resolve_emit_embeddings,
+    write_embeddings,
+    write_output,
+)
 from ifcb_infer.datasets_torch import IfcbBinsDataset
 
 
@@ -17,6 +25,8 @@ def main(args):
     ort_session = ort.InferenceSession(
         args.MODEL, sess_options=sess_options, providers=providers
     )
+
+    emit_embeddings = resolve_emit_embeddings(args, ort_session)
 
     input0 = ort_session.get_inputs()[0]
     model_batch = input0.shape[0]
@@ -55,6 +65,7 @@ def main(args):
     for bin_accessor in pbar:
         img_pids = []
         score_matrix = None
+        embedding_matrix = None
 
         root_dir = os.path.dirname(bin_accessor)
         bin_id = os.path.basename(bin_accessor)
@@ -89,7 +100,12 @@ def main(args):
         else:
             bin_pid = bin_id  # fallback for empty binfilesets
 
-        expected_output_path = get_output_path(args, bin_pid, bin_relative_path)
+        if args.embeddings_only:
+            expected_output_path = get_embedding_output_path(
+                args, bin_pid, bin_relative_path
+            )
+        else:
+            expected_output_path = get_output_path(args, bin_pid, bin_relative_path)
         if os.path.exists(expected_output_path):
             pbar.set_description(
                 f"batchsize={inference_batchsize} (skipping {bin_pid})"
@@ -115,6 +131,21 @@ def main(args):
                 score_matrix = np.concatenate(
                     [score_matrix, batch_score_matrix], axis=0
                 )
+
+            if emit_embeddings:
+                batch_embedding_matrix = outputs[1]
+                if embedding_matrix is None:
+                    embedding_matrix = batch_embedding_matrix
+                else:
+                    embedding_matrix = np.concatenate(
+                        [embedding_matrix, batch_embedding_matrix], axis=0
+                    )
+
             img_pids.extend(batch_pids)
 
-        write_output(args, bin_pid, img_pids, score_matrix, bin_relative_path)
+        if not args.embeddings_only:
+            write_output(args, bin_pid, img_pids, score_matrix, bin_relative_path)
+        if emit_embeddings:
+            write_embeddings(
+                args, bin_pid, img_pids, embedding_matrix, bin_relative_path
+            )
