@@ -21,7 +21,8 @@ ONNX-based inference system for IFCB (Imaging FlowCytobot) bin data. This tool p
 | `[cpu]` | `onnxruntime` (CPU) | Lightweight/constrained environments — no GPU |
 | `[cuda]` | `onnxruntime-gpu` | GPU inference via CUDA |
 | `[torch]` | PyTorch + torchvision | Faster/more flexible data loading, but more dependancies |
-| `[cuda,torch]` | Both of the above | Full-featured install |
+| `[cuda,torch]` | Both of the above | GPU inference with the PyTorch data loader |
+| `[cuda,torch,embeddings]` | CUDA, PyTorch, and pyarrow | Full-featured install, including Parquet embeddings |
 | `[embeddings]` | pyarrow | Writing embedding vectors as Parquet (see [Embeddings](#embeddings)) |
 | `[dev]` | pytest, black, isort, flake8 | Development and testing |
 
@@ -30,7 +31,7 @@ ONNX-based inference system for IFCB (Imaging FlowCytobot) bin data. This tool p
 
 ```bash
 # Full featured install
-pip install "ifcb-infer[cuda,torch] @ git+https://github.com/WHOIGit/ifcb-inference.git"
+pip install "ifcb-infer[cuda,torch,embeddings] @ git+https://github.com/WHOIGit/ifcb-inference.git"
 
 # GPU enabled, but without pytorch dependencies
 pip install "ifcb-infer[cuda] @ git+https://github.com/WHOIGit/ifcb-inference.git"
@@ -43,8 +44,8 @@ pip install "ifcb-infer[cpu] @ git+https://github.com/WHOIGit/ifcb-inference.git
 
 If cloning the repo and developing locally:
 ```bash
-# Full-featured install (gpu/CUDA + PyTorch)
-pip install -e ".[cuda,torch,dev]"
+# Full-featured install (gpu/CUDA + PyTorch + embeddings)
+pip install -e ".[cuda,torch,embeddings,dev]"
 ```
 
 ### cuDNN requirement for `[cuda]` without `[torch]`
@@ -211,12 +212,23 @@ Embeddings are stored at **float16** to halve on-disk size — ample precision f
 
 ## Container Use
 
-The Dockerfile installs with `[cuda,torch]` for full GPU support.
+The default Docker image installs with `[cuda,torch]` for GPU support and the PyTorch data loader. The GitHub workflow also publishes a separate embeddings image with `[cuda,torch,embeddings]` for Parquet embedding output:
+
+| Image | Extras |
+|---|---|
+| `ghcr.io/WHOIGit/ifcb-inference:latest` | `[cuda,torch]` |
+| `ghcr.io/WHOIGit/ifcb-inference-embeddings:latest` | `[cuda,torch,embeddings]` |
 
 Build:
 ```bash
 # Podman
 podman build . -t ifcb-infer:latest
+
+# Embeddings image
+podman build . \
+       --build-arg IFCB_INFER_EXTRAS=cuda,torch,embeddings \
+       -t ifcb-infer-embeddings:latest
+
 podman run -it --rm -e CUDA_VISIBLE_DEVICES=1 \
        --device nvidia.com/gpu=all \
        -v $(pwd)/models:/app/models \

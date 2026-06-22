@@ -1,4 +1,4 @@
-name: Build and Publish Docker Image
+name: Build and Publish Docker Images
 
 on:
   push:
@@ -13,10 +13,21 @@ env:
 
 jobs:
   build-and-push:
+    name: Build ${{ matrix.variant }} image
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: default
+            image_suffix: ''
+            install_extras: cuda,torch
+          - variant: embeddings
+            image_suffix: -embeddings
+            install_extras: cuda,torch,embeddings
 
     steps:
     - name: Checkout repository
@@ -34,7 +45,7 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.image_suffix }}
         tags: |
           type=ref,event=branch
           type=ref,event=pr
@@ -50,3 +61,5 @@ jobs:
         push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+        build-args: |
+          IFCB_INFER_EXTRAS=${{ matrix.install_extras }}
