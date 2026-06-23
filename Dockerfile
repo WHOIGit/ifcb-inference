@@ -6,6 +6,8 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=utf-8
 
+ARG IFCB_INFER_EXTRAS=cuda,torch
+
 WORKDIR /app
 
 COPY pyproject.toml /app/
@@ -14,7 +16,7 @@ COPY src /app/src
 # Install git for ifcbkit git dependency, install package, then remove git to save space
 RUN apt-get update && \
     apt-get install -y git && \
-    pip install ".[cuda,torch]" && \
+    pip install ".[${IFCB_INFER_EXTRAS}]" && \
     apt-get remove -y git && \
     apt-get autoremove -y && \
     apt-get clean && \
