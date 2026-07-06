@@ -22,8 +22,8 @@ ONNX-based inference system for IFCB (Imaging FlowCytobot) bin data. This tool p
 | `[cuda]` | `onnxruntime-gpu` | GPU inference via CUDA |
 | `[torch]` | PyTorch + torchvision | Faster/more flexible data loading, but more dependancies |
 | `[cuda,torch]` | Both of the above | GPU inference with the PyTorch data loader |
-| `[cuda,torch,embeddings]` | CUDA, PyTorch, and pyarrow | Full-featured install, including Parquet embeddings |
-| `[embeddings]` | pyarrow | Writing embedding vectors as Parquet (see [Embeddings](#embeddings)) |
+| `[cuda,torch,parquet]` | CUDA, PyTorch, and pyarrow | Full-featured install, including Parquet output |
+| `[parquet]` | pyarrow | Writing Parquet output — class scores (see [Output](#output-organization-examples)) and embedding vectors (see [Embeddings](#embeddings)) |
 | `[dev]` | pytest, black, isort, flake8 | Development and testing |
 
 - One of `[cpu]` or `[cuda]` must be used to have the appropriate onnxruntime. They are mutually exclusive. If neither are included, at install, `ifcb-infer` will be unable to run. If in doubt, use `[cuda]`.
@@ -31,7 +31,7 @@ ONNX-based inference system for IFCB (Imaging FlowCytobot) bin data. This tool p
 
 ```bash
 # Full featured install
-pip install "ifcb-infer[cuda,torch,embeddings] @ git+https://github.com/WHOIGit/ifcb-inference.git"
+pip install "ifcb-infer[cuda,torch,parquet] @ git+https://github.com/WHOIGit/ifcb-inference.git"
 
 # GPU enabled, but without pytorch dependencies
 pip install "ifcb-infer[cuda] @ git+https://github.com/WHOIGit/ifcb-inference.git"
@@ -44,8 +44,8 @@ pip install "ifcb-infer[cpu] @ git+https://github.com/WHOIGit/ifcb-inference.git
 
 If cloning the repo and developing locally:
 ```bash
-# Full-featured install (gpu/CUDA + PyTorch + embeddings)
-pip install -e ".[cuda,torch,embeddings,dev]"
+# Full-featured install (gpu/CUDA + PyTorch + Parquet)
+pip install -e ".[cuda,torch,parquet,dev]"
 ```
 
 ### cuDNN requirement for `[cuda]` without `[torch]`
@@ -78,6 +78,7 @@ ifcb-infer [OPTIONS] MODEL BINS [BINS ...]
 --outdir DIRPATH                       Output directory. Default: ./outputs
 --outfile PATTERN                      Output filename pattern. Default: {MODEL_NAME}/{SUBPATH}/{BIN}.csv
                                        Tokens: {MODEL_NAME}, {RUN_DATE}, {SUBPATH} (relative dir), {BIN} (bin name)
+                                       A .parquet extension writes scores as Parquet; otherwise CSV.
 --cpuonly                              Force CPU inference even if CUDA is available
 --notorch                              Use non-PyTorch data loader even if torch is installed
 --embeddings                           Also emit penultimate-layer embedding vectors (see Embeddings)
@@ -89,6 +90,7 @@ ifcb-infer [OPTIONS] MODEL BINS [BINS ...]
 - By default, CUDA is used automatically when available/installed and otherwise falls back to using CPU.
 - By default, torch-dataloaders are used automatically when available/installed and otherwise falls back to a simpler implementation.
 - For the output csv to have column names that correspond to human-readable class names, use `--classes` option.
+- Give `--outfile` a `.parquet` extension to write scores as Parquet (requires the `[parquet]` extra). Schema: a `pid` string column plus one `float32` column per class (class names from `--classes`, else `score_0`, `score_1`, …). Any other extension writes CSV as before.
 - If a model has a predefined input batch size, that batch size is automatically used and `--batch` is ignored. 
 - If a model does NOT have a predefined input batch size, `--batch` must be specified.
 
@@ -197,7 +199,7 @@ The embedding tensor is auto-detected as the data input of the final `Gemm`/`Mat
 **2. Run inference with `--embeddings`** against the surgically-modified model:
 
 ```bash
-# install the extra once: pip install -e ".[embeddings]"
+# install the extra once: pip install -e ".[parquet]"
 ifcb-infer --embeddings --classes classes.txt classifier_emb.onnx example-data/bins/
 ```
 
@@ -212,12 +214,12 @@ Embeddings are stored at **float16** to halve on-disk size — ample precision f
 
 ## Container Use
 
-The default Docker image installs with `[cuda,torch]` for GPU support and the PyTorch data loader. The GitHub workflow also publishes a separate embeddings image with `[cuda,torch,embeddings]` for Parquet embedding output:
+The default Docker image installs with `[cuda,torch]` for GPU support and the PyTorch data loader. The GitHub workflow also publishes a separate embeddings image with `[cuda,torch,parquet]` for Parquet output (class scores and embeddings):
 
 | Image | Extras |
 |---|---|
 | `ghcr.io/WHOIGit/ifcb-inference:latest` | `[cuda,torch]` |
-| `ghcr.io/WHOIGit/ifcb-inference-embeddings:latest` | `[cuda,torch,embeddings]` |
+| `ghcr.io/WHOIGit/ifcb-inference-embeddings:latest` | `[cuda,torch,parquet]` |
 
 Build:
 ```bash
@@ -226,7 +228,7 @@ podman build . -t ifcb-infer:latest
 
 # Embeddings image
 podman build . \
-       --build-arg IFCB_INFER_EXTRAS=cuda,torch,embeddings \
+       --build-arg IFCB_INFER_EXTRAS=cuda,torch,parquet \
        -t ifcb-infer-embeddings:latest
 
 podman run -it --rm -e CUDA_VISIBLE_DEVICES=1 \

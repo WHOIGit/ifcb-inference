@@ -6,15 +6,10 @@ import tempfile
 import numpy as np
 import pytest
 
-from ifcb_infer.cli import (
-    argparse_init,
-    argparse_runtime_args,
-    ensure_softmax,
-    get_embedding_output_path,
-    get_output_path,
-    resolve_emit_embeddings,
-    write_embeddings,
-)
+from ifcb_infer.cli import (argparse_init, argparse_runtime_args,
+                            ensure_softmax, get_embedding_output_path,
+                            get_output_path, resolve_emit_embeddings,
+                            write_embeddings, write_output)
 
 # The torch and notorch variants share a single argparse/runtime implementation.
 argparse_init_torch = argparse_init
@@ -513,6 +508,89 @@ class TestEmbeddingArgparse:
         args.BINS = []
         argparse_runtime_args(args)
         assert args.embeddings is True
+
+
+class TestWriteOutput:
+    def setup_method(self):
+        self.args = type("Args", (), {})()
+        self.args.outdir = "./outputs"
+        self.args.run_date_str = "2025-01-15"
+        self.args.model_name = "test_model"
+        self.args.outfile = "{MODEL_NAME}/{SUBPATH}/{BIN}.csv"
+        self.args.classes = ["class_a", "class_b"]
+        self.args.skip_ensure_softmax = False
+
+    def test_csv_default_unchanged(self, tmp_path):
+        self.args.outdir = str(tmp_path)
+        pids = ["pidA", "pidB"]
+        # already-softmaxed rows pass through unchanged
+        scores = np.array([[0.7, 0.3], [0.1, 0.9]], dtype=np.float32)
+        write_output(self.args, "test_bin", pids, scores)
+
+        outpath = get_output_path(self.args, "test_bin")
+        assert os.path.exists(outpath)
+        with open(outpath) as f:
+            lines = f.read().splitlines()
+        assert lines[0] == "pid,class_a,class_b"
+        assert lines[1].startswith("pidA,")
+        assert lines[2].startswith("pidB,")
+
+    def test_parquet_written_when_extension_parquet(self, tmp_path):
+        pytest.importorskip("pyarrow")
+        import pyarrow.parquet as pq
+
+        self.args.outdir = str(tmp_path)
+        self.args.outfile = "{MODEL_NAME}/{SUBPATH}/{BIN}.parquet"
+        pids = ["pidA", "pidB"]
+        scores = np.array([[0.7, 0.3], [0.1, 0.9]], dtype=np.float32)
+        write_output(self.args, "test_bin", pids, scores)
+
+        outpath = get_output_path(self.args, "test_bin")
+        assert os.path.exists(outpath)
+        table = pq.read_table(outpath)
+        assert table.column_names == ["pid", "class_a", "class_b"]
+        assert table.column("pid").to_pylist() == pids
+        back = np.array(
+            [table.column("class_a").to_pylist(), table.column("class_b").to_pylist()]
+        ).T
+        np.testing.assert_allclose(back, scores, rtol=1e-6)
+
+    def test_parquet_softmax_applied(self, tmp_path):
+        pytest.importorskip("pyarrow")
+        import pyarrow.parquet as pq
+
+        self.args.outdir = str(tmp_path)
+        self.args.outfile = "{BIN}.parquet"
+        pids = ["pidA"]
+        # logits (not softmaxed) -> ensure_softmax should normalize rows to sum 1
+        logits = np.array([[2.0, 1.0, 0.0]], dtype=np.float32)
+        self.args.classes = ["a", "b", "c"]
+        write_output(self.args, "test_bin", pids, logits)
+
+        outpath = get_output_path(self.args, "test_bin")
+        table = pq.read_table(outpath)
+        row = np.array([table.column(c).to_pylist()[0] for c in ["a", "b", "c"]])
+        np.testing.assert_allclose(row.sum(), 1.0, atol=1e-5)
+
+    def test_parquet_fallback_column_names_without_classes(self, tmp_path):
+        pytest.importorskip("pyarrow")
+        import pyarrow.parquet as pq
+
+        self.args.outdir = str(tmp_path)
+        self.args.outfile = "{BIN}.parquet"
+        self.args.classes = None
+        pids = ["pidA"]
+        scores = np.array([[0.7, 0.3]], dtype=np.float32)
+        write_output(self.args, "test_bin", pids, scores)
+
+        outpath = get_output_path(self.args, "test_bin")
+        table = pq.read_table(outpath)
+        assert table.column_names == ["pid", "score_0", "score_1"]
+
+    def test_none_matrix_writes_nothing(self, tmp_path):
+        self.args.outdir = str(tmp_path)
+        write_output(self.args, "test_bin", [], None)
+        assert not os.path.exists(get_output_path(self.args, "test_bin"))
 
 
 if __name__ == "__main__":
