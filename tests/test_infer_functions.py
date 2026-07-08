@@ -6,10 +6,16 @@ import tempfile
 import numpy as np
 import pytest
 
-from ifcb_infer.cli import (argparse_init, argparse_runtime_args,
-                            ensure_softmax, get_embedding_output_path,
-                            get_output_path, resolve_emit_embeddings,
-                            write_embeddings, write_output)
+from ifcb_infer.cli import (
+    argparse_init,
+    argparse_runtime_args,
+    ensure_softmax,
+    get_embedding_output_path,
+    get_output_path,
+    resolve_emit_embeddings,
+    write_embeddings,
+    write_output,
+)
 
 # The torch and notorch variants share a single argparse/runtime implementation.
 argparse_init_torch = argparse_init
