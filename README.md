@@ -22,16 +22,17 @@ ONNX-based inference system for IFCB (Imaging FlowCytobot) bin data. This tool p
 | `[cuda]` | `onnxruntime-gpu` | GPU inference via CUDA |
 | `[torch]` | PyTorch + torchvision | Faster/more flexible data loading, but more dependancies |
 | `[cuda,torch]` | Both of the above | GPU inference with the PyTorch data loader |
-| `[cuda,torch,parquet]` | CUDA, PyTorch, and pyarrow | Full-featured install, including Parquet output |
+| `[cuda,torch,parquet,h5]` | CUDA, PyTorch, pyarrow, and h5py | Full-featured install, including Parquet and H5 output |
 | `[parquet]` | pyarrow | Writing Parquet output — class scores (see [Output](#output-organization-examples)) and embedding vectors (see [Embeddings](#embeddings)) |
-| `[dev]` | pytest, black, isort, flake8 | Development and testing |
+| `[h5]` | h5py | Writing `ifcb_classifier`-style H5 class score output |
+| `[dev]` | pytest, black, isort, flake8, pyarrow, h5py | Development and testing |
 
 - One of `[cpu]` or `[cuda]` must be used to have the appropriate onnxruntime. They are mutually exclusive. If neither are included, at install, `ifcb-infer` will be unable to run. If in doubt, use `[cuda]`.
 - Use of `[torch]` is optional. Without it, a basic data loader is used — suitable for constrained or lite environments where installing PyTorch is impractical (e.g. small containers, edge deployments). The `[torch]` data loader is recommended otherwise as it supports more image formats and is generally faster.
 
 ```bash
 # Full featured install
-pip install "ifcb-infer[cuda,torch,parquet] @ git+https://github.com/WHOIGit/ifcb-inference.git"
+pip install "ifcb-infer[cuda,torch,parquet,h5] @ git+https://github.com/WHOIGit/ifcb-inference.git"
 
 # GPU enabled, but without pytorch dependencies
 pip install "ifcb-infer[cuda] @ git+https://github.com/WHOIGit/ifcb-inference.git"
@@ -44,8 +45,8 @@ pip install "ifcb-infer[cpu] @ git+https://github.com/WHOIGit/ifcb-inference.git
 
 If cloning the repo and developing locally:
 ```bash
-# Full-featured install (gpu/CUDA + PyTorch + Parquet)
-pip install -e ".[cuda,torch,parquet,dev]"
+# Full-featured install (gpu/CUDA + PyTorch + Parquet + H5)
+pip install -e ".[cuda,torch,parquet,h5,dev]"
 ```
 
 ### cuDNN requirement for `[cuda]` without `[torch]`
@@ -78,7 +79,9 @@ ifcb-infer [OPTIONS] MODEL BINS [BINS ...]
 --outdir DIRPATH                       Output directory. Default: ./outputs
 --outfile PATTERN                      Output filename pattern. Default: {MODEL_NAME}/{SUBPATH}/{BIN}.csv
                                        Tokens: {MODEL_NAME}, {RUN_DATE}, {SUBPATH} (relative dir), {BIN} (bin name)
-                                       A .parquet extension writes scores as Parquet; otherwise CSV.
+                                       A .parquet extension writes scores as Parquet;
+                                       a .h5 extension writes ifcb_classifier-style H5;
+                                       otherwise CSV.
 --cpuonly                              Force CPU inference even if CUDA is available
 --notorch                              Use non-PyTorch data loader even if torch is installed
 --embeddings                           Also emit penultimate-layer embedding vectors (see Embeddings)
@@ -90,7 +93,9 @@ ifcb-infer [OPTIONS] MODEL BINS [BINS ...]
 - By default, CUDA is used automatically when available/installed and otherwise falls back to using CPU.
 - By default, torch-dataloaders are used automatically when available/installed and otherwise falls back to a simpler implementation.
 - For the output csv to have column names that correspond to human-readable class names, use `--classes` option.
-- Give `--outfile` a `.parquet` extension to write scores as Parquet (requires the `[parquet]` extra). Schema: a `pid` string column plus one `float32` column per class (class names from `--classes`, else `score_0`, `score_1`, …). Any other extension writes CSV as before.
+- Give `--outfile` a `.parquet` extension to write scores as Parquet (requires the `[parquet]` extra). Schema: a `pid` string column plus one `float32` column per class (class names from `--classes`, else `score_0`, `score_1`, …).
+- Give `--outfile` a `.h5` extension to write `ifcb_classifier`-style H5 score files (requires the `[h5]` extra and `--classes`). The H5 contains `metadata` attrs (`version`, `model_id`, `timestamp`, `bin_id`) plus `output_classes`, `output_scores`, `class_labels`, and `roi_numbers` datasets.
+- Any other `--outfile` extension writes CSV as before.
 - If a model has a predefined input batch size, that batch size is automatically used and `--batch` is ignored. 
 - If a model does NOT have a predefined input batch size, `--batch` must be specified.
 
@@ -214,12 +219,12 @@ Embeddings are stored at **float16** to halve on-disk size — ample precision f
 
 ## Container Use
 
-The default Docker image installs with `[cuda,torch]` for GPU support and the PyTorch data loader. The GitHub workflow also publishes a separate embeddings image with `[cuda,torch,parquet]` for Parquet output (class scores and embeddings):
+The default Docker image installs with `[cuda,torch]` for GPU support and the PyTorch data loader. The GitHub workflow also publishes a separate embeddings image with `[cuda,torch,parquet,h5]` for Parquet output (class scores and embeddings) and H5 score output:
 
 | Image | Extras |
 |---|---|
 | `ghcr.io/WHOIGit/ifcb-inference:latest` | `[cuda,torch]` |
-| `ghcr.io/WHOIGit/ifcb-inference-embeddings:latest` | `[cuda,torch,parquet]` |
+| `ghcr.io/WHOIGit/ifcb-inference-embeddings:latest` | `[cuda,torch,parquet,h5]` |
 
 Build:
 ```bash
@@ -228,7 +233,7 @@ podman build . -t ifcb-infer:latest
 
 # Embeddings image
 podman build . \
-       --build-arg IFCB_INFER_EXTRAS=cuda,torch,parquet \
+       --build-arg IFCB_INFER_EXTRAS=cuda,torch,parquet,h5 \
        -t ifcb-infer-embeddings:latest
 
 podman run -it --rm -e CUDA_VISIBLE_DEVICES=1 \
@@ -249,10 +254,10 @@ All `ifcb-infer` options can be appended after the image name.
 
 ### Running Tests
 
-First install with the `[dev]` extra:
+First install with the `[cpu,dev]` extras:
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[cpu,dev]"
 ```
 
 Then run:
