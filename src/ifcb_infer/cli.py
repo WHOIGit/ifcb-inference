@@ -187,20 +187,53 @@ def get_embedding_output_path(args, bin_id, bin_relative_path=None):
     return _format_output_path(args, args.embeddings_outfile, bin_id, bin_relative_path)
 
 
+def _is_parquet(path):
+    return path.lower().endswith(".parquet")
+
+
+def _score_column_names(args, n_classes):
+    if args.classes:
+        return args.classes
+    return [f"score_{i}" for i in range(n_classes)]
+
+
 def write_output(args, bin_id, pids, score_matrix, bin_relative_path=None):
     outpath = get_output_path(args, bin_id, bin_relative_path)
     os.makedirs(os.path.dirname(outpath), exist_ok=True)
+
+    if score_matrix is None:
+        print(f"Warning: No data processed for bin {bin_id}")
+        return
+
+    if not args.skip_ensure_softmax:
+        score_matrix = ensure_softmax(score_matrix)
+
+    if _is_parquet(outpath):
+        _write_scores_parquet(args, outpath, pids, score_matrix)
+    else:
+        _write_scores_csv(args, outpath, pids, score_matrix)
+
+
+def _write_scores_csv(args, outpath, pids, score_matrix):
     with open(outpath, "w") as f:
         if args.classes:
             f.write(",".join(["pid"] + args.classes) + "\n")
-        if score_matrix is not None:
-            if not args.skip_ensure_softmax:
-                score_matrix = ensure_softmax(score_matrix)
-            for pid, score_row in zip(pids, score_matrix):
-                str_row = ",".join(map(str, [pid] + score_row.tolist()))
-                f.write(str_row + "\n")
-        else:
-            print(f"Warning: No data processed for bin {bin_id}")
+        for pid, score_row in zip(pids, score_matrix):
+            str_row = ",".join(map(str, [pid] + score_row.tolist()))
+            f.write(str_row + "\n")
+
+
+def _write_scores_parquet(args, outpath, pids, score_matrix):
+    # Imported lazily so CSV-only runs don't require pyarrow.
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    score_matrix = np.ascontiguousarray(score_matrix.astype(np.float32))
+    n_classes = score_matrix.shape[1]
+    columns = {"pid": pa.array(list(pids), type=pa.string())}
+    for i, name in enumerate(_score_column_names(args, n_classes)):
+        columns[name] = pa.array(score_matrix[:, i], type=pa.float32())
+    pq.write_table(pa.table(columns), outpath)
 
 
 def resolve_emit_embeddings(args, ort_session):

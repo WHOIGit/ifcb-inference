@@ -27,7 +27,7 @@ jobs:
             install_extras: cuda,torch
           - variant: embeddings
             image_suffix: -embeddings
-            install_extras: cuda,torch,embeddings
+            install_extras: cuda,torch,parquet
 
     steps:
     - name: Checkout repository
