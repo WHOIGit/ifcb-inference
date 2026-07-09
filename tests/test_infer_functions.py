@@ -694,9 +694,27 @@ class TestWriteOutput:
             assert class_labels == ["class_a", "class_b"]
 
             assert f["roi_numbers"].compression == "gzip"
-            assert f["roi_numbers"].dtype == np.dtype("uint16")
+            assert f["roi_numbers"].dtype == np.dtype("uint32")
             np.testing.assert_array_equal(
-                f["roi_numbers"][:], np.array([2, 3], dtype=np.uint16)
+                f["roi_numbers"][:], np.array([2, 3], dtype=np.uint32)
+            )
+
+    def test_h5_roi_numbers_support_large_targets(self, tmp_path):
+        pytest.importorskip("h5py")
+        import h5py as h5
+
+        self.args.outdir = str(tmp_path)
+        self.args.outfile = "{BIN}_class.h5"
+        bin_id = "D20250503T073255_IFCB188"
+        pids = [f"{bin_id}_70000"]
+        scores = np.array([[0.7, 0.3]], dtype=np.float32)
+        write_output(self.args, bin_id, pids, scores)
+
+        outpath = get_output_path(self.args, bin_id)
+        with h5.File(outpath, "r") as f:
+            assert f["roi_numbers"].dtype == np.dtype("uint32")
+            np.testing.assert_array_equal(
+                f["roi_numbers"][:], np.array([70000], dtype=np.uint32)
             )
 
     def test_h5_requires_classes(self, tmp_path):

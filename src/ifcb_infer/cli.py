@@ -339,7 +339,7 @@ def _write_scores_h5(args, outpath, bin_id, pids, score_matrix):
             dtype=h5.string_dtype(),
         )
         f.create_dataset(
-            "roi_numbers", data=roi_numbers, compression="gzip", dtype="uint16"
+            "roi_numbers", data=roi_numbers, compression="gzip", dtype="uint32"
         )
 
 
