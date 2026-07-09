@@ -1,5 +1,6 @@
 import argparse
 import datetime as dt
+import importlib.util
 import json
 import os
 
@@ -191,10 +192,101 @@ def _is_parquet(path):
     return path.lower().endswith(".parquet")
 
 
+def _is_h5(path):
+    return path.lower().endswith(".h5")
+
+
+def _writes_score_output(args):
+    return not getattr(args, "embeddings_only", False)
+
+
+def _score_output_is_h5(args):
+    return _writes_score_output(args) and _is_h5(args.outfile)
+
+
+def _score_output_is_parquet(args):
+    return _writes_score_output(args) and _is_parquet(args.outfile)
+
+
+def _writes_embedding_output(args):
+    return getattr(args, "embeddings", False) or getattr(args, "embeddings_only", False)
+
+
+def _has_class_labels(args):
+    return isinstance(args.classes, (list, tuple)) and len(args.classes) > 0
+
+
+def _require_dependency(module_name, extra_name, output_name):
+    if importlib.util.find_spec(module_name) is None:
+        raise ImportError(
+            f"{output_name} output requires {module_name}; install with the "
+            f"[{extra_name}] extra"
+        )
+
+
 def _score_column_names(args, n_classes):
     if args.classes:
+        if not isinstance(args.classes, (list, tuple)):
+            raise ValueError("--classes must point to a readable class list file")
+        if len(args.classes) != n_classes:
+            raise ValueError(
+                f"--classes has {len(args.classes)} labels, but model output has "
+                f"{n_classes} classes"
+            )
         return args.classes
     return [f"score_{i}" for i in range(n_classes)]
+
+
+def validate_score_output_args(args):
+    if _score_output_is_parquet(args):
+        _require_dependency("pyarrow", "parquet", "Parquet score")
+
+    if _writes_embedding_output(args):
+        _require_dependency("pyarrow", "parquet", "Embedding")
+
+    if not _score_output_is_h5(args):
+        return
+
+    if not _has_class_labels(args):
+        raise ValueError(
+            "H5 score output requires --classes with a readable class list"
+        )
+
+    _require_dependency("h5py", "h5", "H5 score")
+
+
+def validate_score_output_model(args, ort_session):
+    if not _writes_score_output(args) or not args.classes:
+        return
+
+    output_shape = getattr(ort_session.get_outputs()[0], "shape", None)
+    if not output_shape:
+        return
+
+    n_classes = output_shape[-1]
+    if isinstance(n_classes, int):
+        _score_column_names(args, n_classes)
+
+
+def _required_h5_class_labels(args, n_classes):
+    if not _has_class_labels(args):
+        raise ValueError(
+            "H5 score output requires --classes with a readable class list"
+        )
+    return _score_column_names(args, n_classes)
+
+
+def _roi_numbers_from_pids(pids):
+    roi_numbers = []
+    for pid in pids:
+        try:
+            _, target = ifcbkit.parse_roi_id(pid)
+        except ValueError as exc:
+            raise ValueError(
+                "H5 score output requires IFCB ROI IDs with target numbers"
+            ) from exc
+        roi_numbers.append(target)
+    return roi_numbers
 
 
 def write_output(args, bin_id, pids, score_matrix, bin_relative_path=None):
@@ -205,11 +297,15 @@ def write_output(args, bin_id, pids, score_matrix, bin_relative_path=None):
         print(f"Warning: No data processed for bin {bin_id}")
         return
 
+    pids = list(pids)
+
     if not args.skip_ensure_softmax:
         score_matrix = ensure_softmax(score_matrix)
 
     if _is_parquet(outpath):
         _write_scores_parquet(args, outpath, pids, score_matrix)
+    elif _is_h5(outpath):
+        _write_scores_h5(args, outpath, bin_id, pids, score_matrix)
     else:
         _write_scores_csv(args, outpath, pids, score_matrix)
 
@@ -234,6 +330,38 @@ def _write_scores_parquet(args, outpath, pids, score_matrix):
     for i, name in enumerate(_score_column_names(args, n_classes)):
         columns[name] = pa.array(score_matrix[:, i], type=pa.float32())
     pq.write_table(pa.table(columns), outpath)
+
+
+def _write_scores_h5(args, outpath, bin_id, pids, score_matrix):
+    n_classes = score_matrix.shape[1]
+    class_labels = _required_h5_class_labels(args, n_classes)
+    roi_numbers = _roi_numbers_from_pids(pids)
+
+    # Imported lazily so non-H5 runs don't require h5py.
+    import h5py as h5
+
+    output_classes = np.argmax(score_matrix, axis=1)
+    with h5.File(outpath, "w") as f:
+        meta = f.create_dataset("metadata", data=h5.Empty("f"))
+        meta.attrs["version"] = "v3"
+        meta.attrs["model_id"] = args.model_name
+        meta.attrs["timestamp"] = args.cmd_timestamp
+        meta.attrs["bin_id"] = bin_id
+        f.create_dataset(
+            "output_classes", data=output_classes, compression="gzip", dtype="float16"
+        )
+        f.create_dataset(
+            "output_scores", data=score_matrix, compression="gzip", dtype="float16"
+        )
+        f.create_dataset(
+            "class_labels",
+            data=list(class_labels),
+            compression="gzip",
+            dtype=h5.string_dtype(),
+        )
+        f.create_dataset(
+            "roi_numbers", data=roi_numbers, compression="gzip", dtype="uint32"
+        )
 
 
 def resolve_emit_embeddings(args, ort_session):
@@ -278,6 +406,7 @@ def main():
     parser = argparse_init()
     args = parser.parse_args()
     argparse_runtime_args(args)
+    validate_score_output_args(args)
 
     use_torch = False
     if not args.notorch:

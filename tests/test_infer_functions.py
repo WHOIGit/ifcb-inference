@@ -13,6 +13,8 @@ from ifcb_infer.cli import (
     get_embedding_output_path,
     get_output_path,
     resolve_emit_embeddings,
+    validate_score_output_args,
+    validate_score_output_model,
     write_embeddings,
     write_output,
 )
@@ -431,8 +433,12 @@ class TestAddEmbeddingOutput:
 
 
 class _FakeSession:
-    def __init__(self, n_outputs):
-        self._outs = [type("O", (), {"name": f"out{i}"})() for i in range(n_outputs)]
+    def __init__(self, n_outputs, output_shapes=None):
+        output_shapes = output_shapes or [None] * n_outputs
+        self._outs = [
+            type("O", (), {"name": f"out{i}", "shape": output_shapes[i]})()
+            for i in range(n_outputs)
+        ]
 
     def get_outputs(self):
         return self._outs
@@ -452,6 +458,101 @@ class TestResolveEmitEmbeddings:
         args = type("Args", (), {"embeddings": True})()
         with pytest.raises(ValueError, match="single output"):
             resolve_emit_embeddings(args, _FakeSession(1))
+
+
+class TestValidateScoreOutput:
+    def setup_method(self):
+        self.args = type("Args", (), {})()
+        self.args.outfile = "{BIN}.csv"
+        self.args.classes = ["class_a", "class_b"]
+        self.args.embeddings = False
+        self.args.embeddings_only = False
+
+    def test_csv_scores_do_not_require_pyarrow(self, mocker):
+        def fake_find_spec(name):
+            if name == "pyarrow":
+                return None
+            return object()
+
+        mocker.patch("importlib.util.find_spec", side_effect=fake_find_spec)
+        validate_score_output_args(self.args)
+
+    def test_parquet_scores_require_pyarrow_before_inference(self, mocker):
+        self.args.outfile = "{BIN}.parquet"
+
+        def fake_find_spec(name):
+            if name == "pyarrow":
+                return None
+            return object()
+
+        mocker.patch("importlib.util.find_spec", side_effect=fake_find_spec)
+        with pytest.raises(ImportError, match="Parquet score output requires pyarrow"):
+            validate_score_output_args(self.args)
+
+    def test_embeddings_require_pyarrow_before_inference(self, mocker):
+        self.args.embeddings = True
+
+        def fake_find_spec(name):
+            if name == "pyarrow":
+                return None
+            return object()
+
+        mocker.patch("importlib.util.find_spec", side_effect=fake_find_spec)
+        with pytest.raises(ImportError, match="Embedding output requires pyarrow"):
+            validate_score_output_args(self.args)
+
+    def test_embeddings_only_require_pyarrow_before_inference(self, mocker):
+        self.args.embeddings_only = True
+
+        def fake_find_spec(name):
+            if name == "pyarrow":
+                return None
+            return object()
+
+        mocker.patch("importlib.util.find_spec", side_effect=fake_find_spec)
+        with pytest.raises(ImportError, match="Embedding output requires pyarrow"):
+            validate_score_output_args(self.args)
+
+    def test_h5_requires_classes_before_inference(self):
+        self.args.outfile = "{BIN}.h5"
+        self.args.classes = None
+        with pytest.raises(ValueError, match="requires --classes"):
+            validate_score_output_args(self.args)
+
+    def test_h5_requires_readable_classes_file_before_inference(self):
+        self.args.outfile = "{BIN}.h5"
+        self.args.classes = "missing.classes"
+        with pytest.raises(ValueError, match="readable class list"):
+            validate_score_output_args(self.args)
+
+    def test_h5_requires_h5py_before_inference(self, mocker):
+        self.args.outfile = "{BIN}.h5"
+
+        def fake_find_spec(name):
+            if name == "h5py":
+                return None
+            return object()
+
+        mocker.patch("importlib.util.find_spec", side_effect=fake_find_spec)
+        with pytest.raises(ImportError, match="requires h5py"):
+            validate_score_output_args(self.args)
+
+    def test_embeddings_only_does_not_validate_score_h5(self):
+        self.args.outfile = "{BIN}.h5"
+        self.args.classes = None
+        self.args.embeddings_only = True
+        validate_score_output_args(self.args)
+
+    def test_known_model_class_count_mismatch_fails_before_bins(self):
+        self.args.outfile = "{BIN}.h5"
+        session = _FakeSession(1, output_shapes=[[None, 3]])
+        with pytest.raises(ValueError, match="2 labels.*3 classes"):
+            validate_score_output_model(self.args, session)
+
+    def test_unknown_model_class_count_is_checked_by_writer_later(self):
+        self.args.outfile = "{BIN}.h5"
+        session = _FakeSession(1, output_shapes=[["batch", "classes"]])
+        validate_score_output_model(self.args, session)
 
 
 class TestWriteEmbeddings:
@@ -520,6 +621,7 @@ class TestWriteOutput:
     def setup_method(self):
         self.args = type("Args", (), {})()
         self.args.outdir = "./outputs"
+        self.args.cmd_timestamp = "2025-01-15T14:30:45+00:00"
         self.args.run_date_str = "2025-01-15"
         self.args.model_name = "test_model"
         self.args.outfile = "{MODEL_NAME}/{SUBPATH}/{BIN}.csv"
@@ -592,6 +694,94 @@ class TestWriteOutput:
         outpath = get_output_path(self.args, "test_bin")
         table = pq.read_table(outpath)
         assert table.column_names == ["pid", "score_0", "score_1"]
+
+    def test_h5_written_when_extension_h5(self, tmp_path):
+        pytest.importorskip("h5py")
+        import h5py as h5
+
+        self.args.outdir = str(tmp_path)
+        self.args.outfile = "{BIN}_class.h5"
+        bin_id = "D20250503T073255_IFCB188"
+        pids = [f"{bin_id}_00002", f"{bin_id}_00003"]
+        scores = np.array([[0.7, 0.3], [0.1, 0.9]], dtype=np.float32)
+        write_output(self.args, bin_id, pids, scores)
+
+        outpath = get_output_path(self.args, bin_id)
+        assert os.path.exists(outpath)
+        with h5.File(outpath, "r") as f:
+            assert set(f.keys()) == {
+                "metadata",
+                "output_classes",
+                "output_scores",
+                "class_labels",
+                "roi_numbers",
+            }
+            metadata = f["metadata"]
+            assert metadata.attrs["version"] == "v3"
+            assert metadata.attrs["model_id"] == "test_model"
+            assert metadata.attrs["timestamp"] == self.args.cmd_timestamp
+            assert metadata.attrs["bin_id"] == bin_id
+
+            assert f["output_classes"].compression == "gzip"
+            assert f["output_classes"].dtype == np.dtype("float16")
+            np.testing.assert_array_equal(
+                f["output_classes"][:], np.array([0, 1], dtype=np.float16)
+            )
+
+            assert f["output_scores"].compression == "gzip"
+            assert f["output_scores"].dtype == np.dtype("float16")
+            np.testing.assert_allclose(f["output_scores"][:], scores.astype(np.float16))
+
+            assert f["class_labels"].compression == "gzip"
+            class_labels = [
+                label.decode() if isinstance(label, bytes) else label
+                for label in f["class_labels"][:]
+            ]
+            assert class_labels == ["class_a", "class_b"]
+
+            assert f["roi_numbers"].compression == "gzip"
+            assert f["roi_numbers"].dtype == np.dtype("uint32")
+            np.testing.assert_array_equal(
+                f["roi_numbers"][:], np.array([2, 3], dtype=np.uint32)
+            )
+
+    def test_h5_roi_numbers_support_large_targets(self, tmp_path):
+        pytest.importorskip("h5py")
+        import h5py as h5
+
+        self.args.outdir = str(tmp_path)
+        self.args.outfile = "{BIN}_class.h5"
+        bin_id = "D20250503T073255_IFCB188"
+        pids = [f"{bin_id}_70000"]
+        scores = np.array([[0.7, 0.3]], dtype=np.float32)
+        write_output(self.args, bin_id, pids, scores)
+
+        outpath = get_output_path(self.args, bin_id)
+        with h5.File(outpath, "r") as f:
+            assert f["roi_numbers"].dtype == np.dtype("uint32")
+            np.testing.assert_array_equal(
+                f["roi_numbers"][:], np.array([70000], dtype=np.uint32)
+            )
+
+    def test_h5_requires_classes(self, tmp_path):
+        self.args.outdir = str(tmp_path)
+        self.args.outfile = "{BIN}.h5"
+        self.args.classes = None
+        scores = np.array([[0.7, 0.3]], dtype=np.float32)
+        with pytest.raises(ValueError, match="requires --classes"):
+            write_output(
+                self.args,
+                "D20250503T073255_IFCB188",
+                ["D20250503T073255_IFCB188_00002"],
+                scores,
+            )
+
+    def test_h5_requires_roi_pids(self, tmp_path):
+        self.args.outdir = str(tmp_path)
+        self.args.outfile = "{BIN}.h5"
+        scores = np.array([[0.7, 0.3]], dtype=np.float32)
+        with pytest.raises(ValueError, match="requires IFCB ROI IDs"):
+            write_output(self.args, "test_bin", ["pidA"], scores)
 
     def test_none_matrix_writes_nothing(self, tmp_path):
         self.args.outdir = str(tmp_path)
