@@ -1,5 +1,6 @@
 import argparse
 import datetime as dt
+import importlib.util
 import json
 import os
 
@@ -195,8 +196,22 @@ def _is_h5(path):
     return path.lower().endswith(".h5")
 
 
+def _writes_score_output(args):
+    return not getattr(args, "embeddings_only", False)
+
+
+def _score_output_is_h5(args):
+    return _writes_score_output(args) and _is_h5(args.outfile)
+
+
+def _has_class_labels(args):
+    return isinstance(args.classes, (list, tuple)) and len(args.classes) > 0
+
+
 def _score_column_names(args, n_classes):
     if args.classes:
+        if not isinstance(args.classes, (list, tuple)):
+            raise ValueError("--classes must point to a readable class list file")
         if len(args.classes) != n_classes:
             raise ValueError(
                 f"--classes has {len(args.classes)} labels, but model output has "
@@ -206,9 +221,37 @@ def _score_column_names(args, n_classes):
     return [f"score_{i}" for i in range(n_classes)]
 
 
+def validate_score_output_args(args):
+    if not _score_output_is_h5(args):
+        return
+
+    if not _has_class_labels(args):
+        raise ValueError(
+            "H5 score output requires --classes with a readable class list"
+        )
+
+    if importlib.util.find_spec("h5py") is None:
+        raise ImportError("H5 score output requires h5py; install with the [h5] extra")
+
+
+def validate_score_output_model(args, ort_session):
+    if not _writes_score_output(args) or not args.classes:
+        return
+
+    output_shape = getattr(ort_session.get_outputs()[0], "shape", None)
+    if not output_shape:
+        return
+
+    n_classes = output_shape[-1]
+    if isinstance(n_classes, int):
+        _score_column_names(args, n_classes)
+
+
 def _required_h5_class_labels(args, n_classes):
-    if not args.classes:
-        raise ValueError("H5 score output requires --classes")
+    if not _has_class_labels(args):
+        raise ValueError(
+            "H5 score output requires --classes with a readable class list"
+        )
     return _score_column_names(args, n_classes)
 
 
@@ -342,6 +385,7 @@ def main():
     parser = argparse_init()
     args = parser.parse_args()
     argparse_runtime_args(args)
+    validate_score_output_args(args)
 
     use_torch = False
     if not args.notorch:

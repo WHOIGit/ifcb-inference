@@ -13,6 +13,8 @@ from ifcb_infer.cli import (
     get_embedding_output_path,
     get_output_path,
     resolve_emit_embeddings,
+    validate_score_output_args,
+    validate_score_output_model,
     write_embeddings,
     write_output,
 )
@@ -431,8 +433,12 @@ class TestAddEmbeddingOutput:
 
 
 class _FakeSession:
-    def __init__(self, n_outputs):
-        self._outs = [type("O", (), {"name": f"out{i}"})() for i in range(n_outputs)]
+    def __init__(self, n_outputs, output_shapes=None):
+        output_shapes = output_shapes or [None] * n_outputs
+        self._outs = [
+            type("O", (), {"name": f"out{i}", "shape": output_shapes[i]})()
+            for i in range(n_outputs)
+        ]
 
     def get_outputs(self):
         return self._outs
@@ -452,6 +458,55 @@ class TestResolveEmitEmbeddings:
         args = type("Args", (), {"embeddings": True})()
         with pytest.raises(ValueError, match="single output"):
             resolve_emit_embeddings(args, _FakeSession(1))
+
+
+class TestValidateScoreOutput:
+    def setup_method(self):
+        self.args = type("Args", (), {})()
+        self.args.outfile = "{BIN}.csv"
+        self.args.classes = ["class_a", "class_b"]
+        self.args.embeddings_only = False
+
+    def test_h5_requires_classes_before_inference(self):
+        self.args.outfile = "{BIN}.h5"
+        self.args.classes = None
+        with pytest.raises(ValueError, match="requires --classes"):
+            validate_score_output_args(self.args)
+
+    def test_h5_requires_readable_classes_file_before_inference(self):
+        self.args.outfile = "{BIN}.h5"
+        self.args.classes = "missing.classes"
+        with pytest.raises(ValueError, match="readable class list"):
+            validate_score_output_args(self.args)
+
+    def test_h5_requires_h5py_before_inference(self, mocker):
+        self.args.outfile = "{BIN}.h5"
+
+        def fake_find_spec(name):
+            if name == "h5py":
+                return None
+            return object()
+
+        mocker.patch("importlib.util.find_spec", side_effect=fake_find_spec)
+        with pytest.raises(ImportError, match="requires h5py"):
+            validate_score_output_args(self.args)
+
+    def test_embeddings_only_does_not_validate_score_h5(self):
+        self.args.outfile = "{BIN}.h5"
+        self.args.classes = None
+        self.args.embeddings_only = True
+        validate_score_output_args(self.args)
+
+    def test_known_model_class_count_mismatch_fails_before_bins(self):
+        self.args.outfile = "{BIN}.h5"
+        session = _FakeSession(1, output_shapes=[[None, 3]])
+        with pytest.raises(ValueError, match="2 labels.*3 classes"):
+            validate_score_output_model(self.args, session)
+
+    def test_unknown_model_class_count_is_checked_by_writer_later(self):
+        self.args.outfile = "{BIN}.h5"
+        session = _FakeSession(1, output_shapes=[["batch", "classes"]])
+        validate_score_output_model(self.args, session)
 
 
 class TestWriteEmbeddings:

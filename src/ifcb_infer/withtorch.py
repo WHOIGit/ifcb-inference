@@ -13,6 +13,7 @@ from ifcb_infer.cli import (
     get_providers,
     pad_batch,
     resolve_emit_embeddings,
+    validate_score_output_model,
     write_embeddings,
     write_output,
 )
@@ -26,6 +27,7 @@ def main(args):
         args.MODEL, sess_options=sess_options, providers=providers
     )
 
+    validate_score_output_model(args, ort_session)
     emit_embeddings = resolve_emit_embeddings(args, ort_session)
 
     input0 = ort_session.get_inputs()[0]
