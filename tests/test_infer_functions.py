@@ -465,7 +465,53 @@ class TestValidateScoreOutput:
         self.args = type("Args", (), {})()
         self.args.outfile = "{BIN}.csv"
         self.args.classes = ["class_a", "class_b"]
+        self.args.embeddings = False
         self.args.embeddings_only = False
+
+    def test_csv_scores_do_not_require_pyarrow(self, mocker):
+        def fake_find_spec(name):
+            if name == "pyarrow":
+                return None
+            return object()
+
+        mocker.patch("importlib.util.find_spec", side_effect=fake_find_spec)
+        validate_score_output_args(self.args)
+
+    def test_parquet_scores_require_pyarrow_before_inference(self, mocker):
+        self.args.outfile = "{BIN}.parquet"
+
+        def fake_find_spec(name):
+            if name == "pyarrow":
+                return None
+            return object()
+
+        mocker.patch("importlib.util.find_spec", side_effect=fake_find_spec)
+        with pytest.raises(ImportError, match="Parquet score output requires pyarrow"):
+            validate_score_output_args(self.args)
+
+    def test_embeddings_require_pyarrow_before_inference(self, mocker):
+        self.args.embeddings = True
+
+        def fake_find_spec(name):
+            if name == "pyarrow":
+                return None
+            return object()
+
+        mocker.patch("importlib.util.find_spec", side_effect=fake_find_spec)
+        with pytest.raises(ImportError, match="Embedding output requires pyarrow"):
+            validate_score_output_args(self.args)
+
+    def test_embeddings_only_require_pyarrow_before_inference(self, mocker):
+        self.args.embeddings_only = True
+
+        def fake_find_spec(name):
+            if name == "pyarrow":
+                return None
+            return object()
+
+        mocker.patch("importlib.util.find_spec", side_effect=fake_find_spec)
+        with pytest.raises(ImportError, match="Embedding output requires pyarrow"):
+            validate_score_output_args(self.args)
 
     def test_h5_requires_classes_before_inference(self):
         self.args.outfile = "{BIN}.h5"

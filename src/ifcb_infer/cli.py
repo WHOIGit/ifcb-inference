@@ -204,8 +204,24 @@ def _score_output_is_h5(args):
     return _writes_score_output(args) and _is_h5(args.outfile)
 
 
+def _score_output_is_parquet(args):
+    return _writes_score_output(args) and _is_parquet(args.outfile)
+
+
+def _writes_embedding_output(args):
+    return getattr(args, "embeddings", False) or getattr(args, "embeddings_only", False)
+
+
 def _has_class_labels(args):
     return isinstance(args.classes, (list, tuple)) and len(args.classes) > 0
+
+
+def _require_dependency(module_name, extra_name, output_name):
+    if importlib.util.find_spec(module_name) is None:
+        raise ImportError(
+            f"{output_name} output requires {module_name}; install with the "
+            f"[{extra_name}] extra"
+        )
 
 
 def _score_column_names(args, n_classes):
@@ -222,6 +238,12 @@ def _score_column_names(args, n_classes):
 
 
 def validate_score_output_args(args):
+    if _score_output_is_parquet(args):
+        _require_dependency("pyarrow", "parquet", "Parquet score")
+
+    if _writes_embedding_output(args):
+        _require_dependency("pyarrow", "parquet", "Embedding")
+
     if not _score_output_is_h5(args):
         return
 
@@ -230,8 +252,7 @@ def validate_score_output_args(args):
             "H5 score output requires --classes with a readable class list"
         )
 
-    if importlib.util.find_spec("h5py") is None:
-        raise ImportError("H5 score output requires h5py; install with the [h5] extra")
+    _require_dependency("h5py", "h5", "H5 score")
 
 
 def validate_score_output_model(args, ort_session):
