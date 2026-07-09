@@ -16,7 +16,7 @@ COPY src /app/src
 # Install git for ifcbkit git dependency, install package, then remove git to save space
 RUN apt-get update && \
     apt-get install -y git && \
-    pip install ".[${IFCB_INFER_EXTRAS}]" && \
+    pip install ".[${IFCB_INFER_EXTRAS}]" --extra-index-url https://download.pytorch.org/whl/cpu && \
     apt-get remove -y git && \
     apt-get autoremove -y && \
     apt-get clean && \
