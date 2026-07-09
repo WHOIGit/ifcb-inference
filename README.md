@@ -28,11 +28,11 @@ ONNX-based inference system for IFCB (Imaging FlowCytobot) bin data. This tool p
 | `[dev]` | pytest, black, isort, flake8, pyarrow, h5py | Development and testing |
 
 - One of `[cpu]` or `[cuda]` must be used to have the appropriate onnxruntime. They are mutually exclusive. If neither are included, at install, `ifcb-infer` will be unable to run. If in doubt, use `[cuda]`.
-- Use of `[torch]` is optional. Without it, a basic data loader is used — suitable for constrained or lite environments where installing PyTorch is impractical (e.g. small containers, edge deployments). The `[torch]` data loader is recommended otherwise as it supports more image formats and is generally faster.
+- Use of `[torch]` is optional. Without it, a basic data loader is used - suitable for constrained or lite environments where installing PyTorch is impractical (e.g. small containers, edge deployments). The `[torch]` data loader is otherwise recommended as it supports more image formats and is generally faster. If `[torch]` is used, to avoid `cudnn` version conflicts from `[cuda]` (aka `onnxruntime[cuda,cudnn]`), and/or lighten install, pip commmand should include `--extra-index-url https://download.pytorch.org/whl/cpu`; this forces the cpu version of pytorch, which is fine since we're only using it for its dataloaders. 
 
 ```bash
 # Full featured install
-pip install "ifcb-infer[cuda,torch,parquet,h5] @ git+https://github.com/WHOIGit/ifcb-inference.git"
+pip install "ifcb-infer[cuda,torch,parquet,h5] @ git+https://github.com/WHOIGit/ifcb-inference.git" --extra-index-url https://download.pytorch.org/whl/cpu
 
 # GPU enabled, but without pytorch dependencies
 pip install "ifcb-infer[cuda] @ git+https://github.com/WHOIGit/ifcb-inference.git"
@@ -46,12 +46,12 @@ pip install "ifcb-infer[cpu] @ git+https://github.com/WHOIGit/ifcb-inference.git
 If cloning the repo and developing locally:
 ```bash
 # Full-featured install (gpu/CUDA + PyTorch + Parquet + H5)
-pip install -e ".[cuda,torch,parquet,h5,dev]"
+pip install -e ".[cuda,torch,parquet,h5,dev]" --extra-index-url https://download.pytorch.org/whl/cpu
 ```
 
 ### cuDNN requirement for `[cuda]` without `[torch]`
 
-`[cuda,torch]` works out of the box — PyTorch bundles its own cuDNN libraries and ORT finds them automatically.
+`[cuda,torch] --extra-index-url https://download.pytorch.org/whl/cpu` works out of the box. CUDNN gets bundled with `[cuda']` (ie `onnxrutime[cuda,cudnn]`) and not `torch`. To avoid conflict `--extra-index-url https://download.pytorch.org/whl/cpu` is used such that pytorch (which is primarily used for its dataloaders) doesn't clobber onnxruntime's CUDNN libs.
 
 `[cuda]` alone installs `nvidia-cudnn-cu12` via pip, but ORT cannot find it without help because the libraries land in `site-packages`, not a standard system path. If you don't have libcudnn9-cuda-12 installed globally/to a standard location, it must be explicitely set with `LD_LIBRARY_PATH`. 
 
