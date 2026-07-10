@@ -12,7 +12,7 @@ ONNX-based inference system for IFCB (Imaging FlowCytobot) bin data. This tool p
 - **Configurable output organization**: Choose between run-date or model-name subfolder organization
 - **Directory structure preservation**: Maintains input directory hierarchies in output
 - **Containerized deployment**: Docker/Podman support for consistent environments
-- **GPU acceleration**: CUDA support for faster inference (automatic when available)
+- **GPU acceleration**: CUDA (NVIDIA) and CoreML (Apple Silicon) support for faster inference (automatic when available)
 
 ## Installation
 
@@ -61,6 +61,20 @@ export LD_LIBRARY_PATH=$(pip show nvidia-cudnn-cu12 | grep Location | awk '{prin
 ```
 Add this to your environment profile (`.bashrc`, `.bash_profile`, venv/bin/activate script) to make it persistent.
 
+### Apple Silicon (CoreML)
+
+On Apple Silicon (M-series) Macs, GPU acceleration works out of the box with the `[cpu]` extra — the stock `onnxruntime` wheel bundles the CoreML execution provider, so no CUDA and no extra dependency is needed:
+
+```bash
+pip install "ifcb-infer[cpu,torch] @ git+https://github.com/WHOIGit/ifcb-inference.git"
+```
+
+`ifcb-infer` auto-selects providers in the order CUDA → CoreML → CPU, so CoreML is used automatically when CUDA is absent. Notes:
+
+- **`--cpuonly`** disables CoreML (and CUDA) and forces the plain CPU provider — useful for comparison or debugging.
+- **`IFCB_COREML_COMPUTE_UNITS`** env var picks the CoreML backend: `ALL` (default), `CPUAndGPU`, `CPUAndNeuralEngine`, or `CPUOnly`. The GPU (`ALL`/`CPUAndGPU`) is fastest for these CNN classifiers; the Neural Engine is much slower for this workload and not recommended.
+- Harmless `E5RT ... has unbounded dimension` messages may print on stderr for dynamic-batch models; inference results are unaffected. They can be avoided by baking a fixed batch size into the model (see `ifcb_infer.convert_onnx_batchsize`).
+
 ## Usage
 
 ```bash
@@ -82,7 +96,7 @@ ifcb-infer [OPTIONS] MODEL BINS [BINS ...]
                                        A .parquet extension writes scores as Parquet;
                                        a .h5 extension writes ifcb_classifier-style H5;
                                        otherwise CSV.
---cpuonly                              Force CPU inference even if CUDA is available
+--cpuonly                              Force CPU inference even if CUDA or CoreML is available
 --notorch                              Use non-PyTorch data loader even if torch is installed
 --embeddings                           Also emit penultimate-layer embedding vectors (see Embeddings)
 --embeddings-only                      Emit only embeddings, skip the score CSV (implies --embeddings)
@@ -90,7 +104,7 @@ ifcb-infer [OPTIONS] MODEL BINS [BINS ...]
                                        Default: {MODEL_NAME}/{SUBPATH}/{BIN}.emb.parquet
 ```
 
-- By default, CUDA is used automatically when available/installed and otherwise falls back to using CPU.
+- By default, CUDA is used automatically when available/installed, then CoreML on Apple Silicon, otherwise falls back to CPU.
 - By default, torch-dataloaders are used automatically when available/installed and otherwise falls back to a simpler implementation.
 - For the output csv to have column names that correspond to human-readable class names, use `--classes` option.
 - Give `--outfile` a `.parquet` extension to write scores as Parquet (requires the `[parquet]` extra). Schema: a `pid` string column plus one `float32` column per class (class names from `--classes`, else `score_0`, `score_1`, …).

@@ -48,7 +48,7 @@ def argparse_init(parser=None):
     parser.add_argument(
         "--cpuonly",
         action="store_true",
-        help="Force CPU-only inference, disabling CUDA even if available",
+        help="Force CPU-only inference, disabling CUDA or CoreML even if available",
     )
     parser.add_argument(
         "--skip-ensure-softmax",
@@ -78,10 +78,22 @@ def argparse_init(parser=None):
 
 def get_providers(args):
     available_providers = ort.get_available_providers()
-    if args.cpuonly or "CUDAExecutionProvider" not in available_providers:
+    if args.cpuonly:
         return ["CPUExecutionProvider"]
-    else:
+    if "CUDAExecutionProvider" in available_providers:
         return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    if "CoreMLExecutionProvider" in available_providers:
+        coreml_options = {
+            "ModelFormat": "MLProgram",
+            "MLComputeUnits": os.environ.get("IFCB_COREML_COMPUTE_UNITS", "ALL"),
+            "RequireStaticInputShapes": "0",
+            "AllowLowPrecisionAccumulationOnGPU": "1",
+        }
+        return [
+            ("CoreMLExecutionProvider", coreml_options),
+            "CPUExecutionProvider",
+        ]
+    return ["CPUExecutionProvider"]
 
 
 def argparse_runtime_args(args):
