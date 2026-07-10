@@ -12,6 +12,7 @@ from ifcb_infer.cli import (
     ensure_softmax,
     get_embedding_output_path,
     get_output_path,
+    get_providers,
     resolve_emit_embeddings,
     validate_score_output_args,
     validate_score_output_model,
@@ -787,6 +788,67 @@ class TestWriteOutput:
         self.args.outdir = str(tmp_path)
         write_output(self.args, "test_bin", [], None)
         assert not os.path.exists(get_output_path(self.args, "test_bin"))
+
+
+class TestGetProviders:
+    def setup_method(self):
+        self.args = argparse_init().parse_args(["model.onnx", "bin"])
+
+    def _available(self, mocker, providers):
+        mocker.patch(
+            "ifcb_infer.cli.ort.get_available_providers", return_value=providers
+        )
+
+    def test_cpuonly_overrides_cuda(self, mocker):
+        self._available(mocker, ["CUDAExecutionProvider", "CPUExecutionProvider"])
+        self.args.cpuonly = True
+        assert get_providers(self.args) == ["CPUExecutionProvider"]
+
+    def test_cpuonly_overrides_coreml(self, mocker):
+        self._available(mocker, ["CoreMLExecutionProvider", "CPUExecutionProvider"])
+        self.args.cpuonly = True
+        assert get_providers(self.args) == ["CPUExecutionProvider"]
+
+    def test_cuda_preferred(self, mocker):
+        self._available(mocker, ["CUDAExecutionProvider", "CPUExecutionProvider"])
+        assert get_providers(self.args) == [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider",
+        ]
+
+    def test_cuda_wins_over_coreml(self, mocker):
+        self._available(
+            mocker,
+            [
+                "CUDAExecutionProvider",
+                "CoreMLExecutionProvider",
+                "CPUExecutionProvider",
+            ],
+        )
+        assert get_providers(self.args) == [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider",
+        ]
+
+    def test_coreml_when_no_cuda(self, mocker):
+        self._available(mocker, ["CoreMLExecutionProvider", "CPUExecutionProvider"])
+        providers = get_providers(self.args)
+        assert len(providers) == 2
+        name, options = providers[0]
+        assert name == "CoreMLExecutionProvider"
+        assert options["ModelFormat"] == "MLProgram"
+        assert options["MLComputeUnits"] == "ALL"
+        assert providers[1] == "CPUExecutionProvider"
+
+    def test_coreml_compute_units_env_override(self, mocker):
+        self._available(mocker, ["CoreMLExecutionProvider", "CPUExecutionProvider"])
+        mocker.patch.dict(os.environ, {"IFCB_COREML_COMPUTE_UNITS": "CPUAndGPU"})
+        _, options = get_providers(self.args)[0]
+        assert options["MLComputeUnits"] == "CPUAndGPU"
+
+    def test_cpu_fallback_when_nothing_available(self, mocker):
+        self._available(mocker, ["CPUExecutionProvider"])
+        assert get_providers(self.args) == ["CPUExecutionProvider"]
 
 
 if __name__ == "__main__":
