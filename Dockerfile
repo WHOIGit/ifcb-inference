@@ -22,4 +22,4 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-ENTRYPOINT ["ifcb-infer"]
+ENTRYPOINT ["sh", "-c", "umask 0002 && exec ifcb-infer \"$@\"", "--"]
