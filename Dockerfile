@@ -22,4 +22,23 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# Register the CUDA/cuDNN shared libraries shipped by the nvidia-* pip wheels.
+#
+# Those wheels install their .so files under site-packages/nvidia/*/lib, which the
+# dynamic linker does not search. Without this, libonnxruntime_providers_cuda.so
+# fails to load ("libcublasLt.so.13: cannot open shared object file") and
+# onnxruntime falls back to CPU. The fallback is quiet: it logs a warning to
+# stderr, and ort.get_available_providers() still lists CUDAExecutionProvider,
+# because that reports what was compiled in rather than what can load. Only
+# InferenceSession(...).get_providers() reveals the real state.
+#
+# site-packages is resolved at build time and the glob covers every nvidia
+# subpackage (currently cu13 and cudnn), so a Python or CUDA version bump does not
+# silently drop us back to CPU. Building with the cpu extra produces an empty
+# file, which ldconfig ignores.
+RUN python -c "import site, glob, os; print('\n'.join(d for p in site.getsitepackages() for d in glob.glob(os.path.join(p, 'nvidia', '*', 'lib'))))" \
+        > /etc/ld.so.conf.d/nvidia-pip.conf \
+    && cat /etc/ld.so.conf.d/nvidia-pip.conf \
+    && ldconfig
+
 ENTRYPOINT ["sh", "-c", "umask 0002 && exec ifcb-infer \"$@\"", "--"]
