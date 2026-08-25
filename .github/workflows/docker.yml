@@ -2,9 +2,7 @@ name: Build and Publish Docker Images
 
 on:
   push:
-    # fix-cuda-provider-libpath is here temporarily so CI publishes a branch image
-    # for GPU verification. Remove it before merging.
-    branches: [ main, fix-cuda-provider-libpath ]
+    branches: [ main ]
     tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
