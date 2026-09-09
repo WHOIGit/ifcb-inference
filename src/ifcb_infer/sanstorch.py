@@ -16,10 +16,17 @@ from ifcb_infer.cli import (
 )
 from ifcb_infer.datasets import IfcbBinDataset, IfcbBinImageTransformer, MyDataLoader
 
+def available_cpu_count() -> int:
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:
+        return os.cpu_count() or 1
 
 def main(args):
     providers = get_providers(args)
     sess_options = ort.SessionOptions()
+    sess_options.intra_op_num_threads = available_cpu_count()
+    sess_options.inter_op_num_threads = 1
     ort_session = ort.InferenceSession(
         args.MODEL, sess_options=sess_options, providers=providers
     )
